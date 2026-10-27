@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "parallel-bench"
+version = "0.1.0"
+description = "Two-query DuckDB/Sirius concurrency experiments"
+requires-python = ">=3.11"
+# Install the matching DuckDB wheel explicitly: a PyPI dependency here could
+# silently replace the custom build required by Sirius.
+dependencies = []
+
+[project.optional-dependencies]
+sirius = ["PyYAML==6.0.3"]
+
+[project.scripts]
+parallel-bench = "parallel_bench.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["parallel_bench*"]

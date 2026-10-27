@@ -1,0 +1,13 @@
+# A small CPU development run, separate from the matched Sirius comparison.
+[benchmark]
+backend = "duckdb"
+db = "../data/smoke.duckdb"
+scale_factor = 0.01
+queries = [3, 6]
+warmups = 1
+repetitions = 3
+threads = 2
+memory_limit = "1GB"
+output_dir = "../results"
+label = "cpu-smoke"
+expected_source_id = "069cc9f9b5"

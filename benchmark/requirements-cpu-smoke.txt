@@ -1,0 +1,2 @@
+# CPU-only development/smoke environment; NOT the Sirius comparison build.
+duckdb==1.5.6

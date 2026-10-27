@@ -1,0 +1,26 @@
+[benchmark]
+backend = "sirius"
+db = "../data/tpch.duckdb"
+scale_factor = 1.0
+queries = [3, 6]
+warmups = 2
+repetitions = 10
+seed = 0
+threads = 4
+memory_limit = "32GB"
+output_dir = "../results"
+label = "sirius"
+barrier_timeout_s = 30.0
+trial_timeout_s = 300.0
+startup_timeout_s = 120.0
+validate = true
+explain = false
+expected_source_id = "d54cbbe3df"
+
+[sirius]
+# Replace with the actual built/downloaded extension path.
+extension_path = "/path/to/sirius.duckdb_extension"
+config_path = "sirius-runtime.yaml"
+gpu = "0"
+enable_duckdb_fallback = false
+allow_unsigned_extensions = true
