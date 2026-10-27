@@ -1,0 +1,11 @@
+.venv/
+.specstory/*
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.duckdb
+*.duckdb.wal
+*.duckdb.tmp/
+/benchmark/data/
+/benchmark/results/
+cod__git.code-workspace

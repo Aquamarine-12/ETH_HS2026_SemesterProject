@@ -1,0 +1,354 @@
+{
+  "metadata": {
+    "utc": "2026-10-25T10:17:25.793323+00:00",
+    "duckdb_version": [
+      "v1.5.6",
+      "069cc9f9b5",
+      "Variegata"
+    ],
+    "python": "3.12.3",
+    "platform": "Linux-7.0.0-28-generic-x86_64-with-glibc2.39",
+    "process_id": 9748,
+    "logical_cpus_reported": 8,
+    "database": "/home/mauve/ETH/HS 2026/Semester project/cod experimente/duckdb-two-queries/tpch.duckdb",
+    "scale_factor": 3.0,
+    "settings": {
+      "external_threads": "1",
+      "memory_limit": "3.7 GiB",
+      "scheduler_process_partial": "false",
+      "temp_directory": "/home/mauve/ETH/HS 2026/Semester project/cod experimente/duckdb-two-queries/tpch.duckdb.tmp",
+      "threads": "4"
+    },
+    "queries": [
+      1,
+      1
+    ],
+    "query_sql": [
+      "SELECT\n    l_returnflag,\n    l_linestatus,\n    sum(l_quantity) AS sum_qty,\n    sum(l_extendedprice) AS sum_base_price,\n    sum(l_extendedprice * (1 - l_discount)) AS sum_disc_price,\n    sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) AS sum_charge,\n    avg(l_quantity) AS avg_qty,\n    avg(l_extendedprice) AS avg_price,\n    avg(l_discount) AS avg_disc,\n    count(*) AS count_order\nFROM\n    lineitem\nWHERE\n    l_shipdate <= CAST('1998-09-02' AS date)\nGROUP BY\n    l_returnflag,\n    l_linestatus\nORDER BY\n    l_returnflag,\n    l_linestatus;\n",
+      "SELECT\n    l_returnflag,\n    l_linestatus,\n    sum(l_quantity) AS sum_qty,\n    sum(l_extendedprice) AS sum_base_price,\n    sum(l_extendedprice * (1 - l_discount)) AS sum_disc_price,\n    sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) AS sum_charge,\n    avg(l_quantity) AS avg_qty,\n    avg(l_extendedprice) AS avg_price,\n    avg(l_discount) AS avg_disc,\n    count(*) AS count_order\nFROM\n    lineitem\nWHERE\n    l_shipdate <= CAST('1998-09-02' AS date)\nGROUP BY\n    l_returnflag,\n    l_linestatus\nORDER BY\n    l_returnflag,\n    l_linestatus;\n"
+    ],
+    "warmup_rounds": 1,
+    "repetitions": 5,
+    "seed": 0,
+    "measurement": "execute(sql).fetchall(); includes parse/plan and Python result conversion; excludes connection creation and barrier wait",
+    "correctness": "row counts checked across runs; full answer values are not validated"
+  },
+  "summary": [
+    {
+      "slot": 0,
+      "query": 1,
+      "isolated_median_s": 0.24104318999980023,
+      "concurrent_median_s": 0.4429945740000676,
+      "slowdown": 1.837822400211492
+    },
+    {
+      "slot": 1,
+      "query": 1,
+      "isolated_median_s": 0.23834854200003974,
+      "concurrent_median_s": 0.28202320700006567,
+      "slowdown": 1.183238649725068
+    }
+  ],
+  "runs": [
+    {
+      "trial": 1,
+      "phase": "isolated_0",
+      "records": [
+        {
+          "slot": 0,
+          "query": 1,
+          "start_s": 0.0,
+          "end_s": 0.2420807739999873,
+          "latency_s": 0.2420807739999873,
+          "result_rows": 4,
+          "application_thread_id": 9785
+        }
+      ],
+      "makespan_s": 0.2420807739999873,
+      "batch_queries_per_second": 4.130852621943668
+    },
+    {
+      "trial": 1,
+      "phase": "concurrent",
+      "records": [
+        {
+          "slot": 0,
+          "query": 1,
+          "start_s": 0.00016479300006722042,
+          "end_s": 0.4342656460000853,
+          "latency_s": 0.4341008530000181,
+          "result_rows": 4,
+          "application_thread_id": 9784
+        },
+        {
+          "slot": 1,
+          "query": 1,
+          "start_s": 0.0,
+          "end_s": 0.3517269970000143,
+          "latency_s": 0.3517269970000143,
+          "result_rows": 4,
+          "application_thread_id": 9785
+        }
+      ],
+      "makespan_s": 0.4342656460000853,
+      "batch_queries_per_second": 4.605475976332714
+    },
+    {
+      "trial": 1,
+      "phase": "isolated_1",
+      "records": [
+        {
+          "slot": 1,
+          "query": 1,
+          "start_s": 0.0,
+          "end_s": 0.2314436530000421,
+          "latency_s": 0.2314436530000421,
+          "result_rows": 4,
+          "application_thread_id": 9785
+        }
+      ],
+      "makespan_s": 0.2314436530000421,
+      "batch_queries_per_second": 4.320706085639851
+    },
+    {
+      "trial": 2,
+      "phase": "concurrent",
+      "records": [
+        {
+          "slot": 0,
+          "query": 1,
+          "start_s": 0.00019790600003943837,
+          "end_s": 0.443192480000107,
+          "latency_s": 0.4429945740000676,
+          "result_rows": 4,
+          "application_thread_id": 9784
+        },
+        {
+          "slot": 1,
+          "query": 1,
+          "start_s": 0.0,
+          "end_s": 0.27952269999991586,
+          "latency_s": 0.27952269999991586,
+          "result_rows": 4,
+          "application_thread_id": 9785
+        }
+      ],
+      "makespan_s": 0.443192480000107,
+      "batch_queries_per_second": 4.512711948540997
+    },
+    {
+      "trial": 2,
+      "phase": "isolated_1",
+      "records": [
+        {
+          "slot": 1,
+          "query": 1,
+          "start_s": 0.0,
+          "end_s": 0.23834854200003974,
+          "latency_s": 0.23834854200003974,
+          "result_rows": 4,
+          "application_thread_id": 9785
+        }
+      ],
+      "makespan_s": 0.23834854200003974,
+      "batch_queries_per_second": 4.195536467765904
+    },
+    {
+      "trial": 2,
+      "phase": "isolated_0",
+      "records": [
+        {
+          "slot": 0,
+          "query": 1,
+          "start_s": 0.0,
+          "end_s": 0.24149599300017144,
+          "latency_s": 0.24149599300017144,
+          "result_rows": 4,
+          "application_thread_id": 9784
+        }
+      ],
+      "makespan_s": 0.24149599300017144,
+      "batch_queries_per_second": 4.140855455101858
+    },
+    {
+      "trial": 3,
+      "phase": "isolated_0",
+      "records": [
+        {
+          "slot": 0,
+          "query": 1,
+          "start_s": 0.0,
+          "end_s": 0.23750308900002892,
+          "latency_s": 0.23750308900002892,
+          "result_rows": 4,
+          "application_thread_id": 9785
+        }
+      ],
+      "makespan_s": 0.23750308900002892,
+      "batch_queries_per_second": 4.210471553066319
+    },
+    {
+      "trial": 3,
+      "phase": "isolated_1",
+      "records": [
+        {
+          "slot": 1,
+          "query": 1,
+          "start_s": 0.0,
+          "end_s": 0.23174385600009373,
+          "latency_s": 0.23174385600009373,
+          "result_rows": 4,
+          "application_thread_id": 9784
+        }
+      ],
+      "makespan_s": 0.23174385600009373,
+      "batch_queries_per_second": 4.3151090055202825
+    },
+    {
+      "trial": 3,
+      "phase": "concurrent",
+      "records": [
+        {
+          "slot": 0,
+          "query": 1,
+          "start_s": 0.00021763099994132062,
+          "end_s": 0.4450869289998991,
+          "latency_s": 0.4448692979999578,
+          "result_rows": 4,
+          "application_thread_id": 9785
+        },
+        {
+          "slot": 1,
+          "query": 1,
+          "start_s": 0.0,
+          "end_s": 0.28202320700006567,
+          "latency_s": 0.28202320700006567,
+          "result_rows": 4,
+          "application_thread_id": 9784
+        }
+      ],
+      "makespan_s": 0.4450869289998991,
+      "batch_queries_per_second": 4.493504234091883
+    },
+    {
+      "trial": 4,
+      "phase": "isolated_0",
+      "records": [
+        {
+          "slot": 0,
+          "query": 1,
+          "start_s": 0.0,
+          "end_s": 0.24104318999980023,
+          "latency_s": 0.24104318999980023,
+          "result_rows": 4,
+          "application_thread_id": 9784
+        }
+      ],
+      "makespan_s": 0.24104318999980023,
+      "batch_queries_per_second": 4.148634109932036
+    },
+    {
+      "trial": 4,
+      "phase": "concurrent",
+      "records": [
+        {
+          "slot": 0,
+          "query": 1,
+          "start_s": 0.00017862000004242873,
+          "end_s": 0.4459601759999714,
+          "latency_s": 0.44578155599992897,
+          "result_rows": 4,
+          "application_thread_id": 9785
+        },
+        {
+          "slot": 1,
+          "query": 1,
+          "start_s": 0.0,
+          "end_s": 0.2552099439999438,
+          "latency_s": 0.2552099439999438,
+          "result_rows": 4,
+          "application_thread_id": 9784
+        }
+      ],
+      "makespan_s": 0.4459601759999714,
+      "batch_queries_per_second": 4.484705378715539
+    },
+    {
+      "trial": 4,
+      "phase": "isolated_1",
+      "records": [
+        {
+          "slot": 1,
+          "query": 1,
+          "start_s": 0.0,
+          "end_s": 0.25435129199991025,
+          "latency_s": 0.25435129199991025,
+          "result_rows": 4,
+          "application_thread_id": 9784
+        }
+      ],
+      "makespan_s": 0.25435129199991025,
+      "batch_queries_per_second": 3.931570357426582
+    },
+    {
+      "trial": 5,
+      "phase": "isolated_0",
+      "records": [
+        {
+          "slot": 0,
+          "query": 1,
+          "start_s": 0.0,
+          "end_s": 0.23826953799994044,
+          "latency_s": 0.23826953799994044,
+          "result_rows": 4,
+          "application_thread_id": 9785
+        }
+      ],
+      "makespan_s": 0.23826953799994044,
+      "batch_queries_per_second": 4.196927598861798
+    },
+    {
+      "trial": 5,
+      "phase": "concurrent",
+      "records": [
+        {
+          "slot": 0,
+          "query": 1,
+          "start_s": 0.0,
+          "end_s": 0.2800967779999155,
+          "latency_s": 0.2800967779999155,
+          "result_rows": 4,
+          "application_thread_id": 9784
+        },
+        {
+          "slot": 1,
+          "query": 1,
+          "start_s": 0.00016230500000347092,
+          "end_s": 0.44235168199998043,
+          "latency_s": 0.44218937699997696,
+          "result_rows": 4,
+          "application_thread_id": 9785
+        }
+      ],
+      "makespan_s": 0.44235168199998043,
+      "batch_queries_per_second": 4.52128946578774
+    },
+    {
+      "trial": 5,
+      "phase": "isolated_1",
+      "records": [
+        {
+          "slot": 1,
+          "query": 1,
+          "start_s": 0.0,
+          "end_s": 0.2386533869998857,
+          "latency_s": 0.2386533869998857,
+          "result_rows": 4,
+          "application_thread_id": 9784
+        }
+      ],
+      "makespan_s": 0.2386533869998857,
+      "batch_queries_per_second": 4.190177279991752
+    }
+  ]
+}
