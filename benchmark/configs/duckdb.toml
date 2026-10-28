@@ -6,8 +6,10 @@ queries = [3, 6]
 warmups = 2
 repetitions = 10
 seed = 0
-threads = 4
-memory_limit = "32GB"
+# Omitted resources use DuckDB defaults. For a controlled 32 GB run,
+# uncomment the same override in BOTH comparison configs:
+# memory_limit = "32GB"
+# threads = 8  # Example allocation, not a runner default.
 output_dir = "../results"
 label = "duckdb"
 barrier_timeout_s = 30.0

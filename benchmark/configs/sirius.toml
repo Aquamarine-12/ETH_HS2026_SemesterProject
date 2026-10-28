@@ -6,8 +6,10 @@ queries = [3, 6]
 warmups = 2
 repetitions = 10
 seed = 0
-threads = 4
-memory_limit = "32GB"
+# Omitted resources use DuckDB defaults. For a controlled 32 GB run,
+# uncomment the same override in BOTH comparison configs:
+# memory_limit = "32GB"
+# threads = 8  # Example allocation, not a runner default.
 output_dir = "../results"
 label = "sirius"
 barrier_timeout_s = 30.0
@@ -21,6 +23,7 @@ expected_source_id = "d54cbbe3df"
 # Replace with the actual built/downloaded extension path.
 extension_path = "/path/to/sirius.duckdb_extension"
 config_path = "sirius-runtime.yaml"
-gpu = "0"
+# Omit gpu to retain a single GPU assigned by the scheduler.
+# gpu = "0"
 enable_duckdb_fallback = false
 allow_unsigned_extensions = true

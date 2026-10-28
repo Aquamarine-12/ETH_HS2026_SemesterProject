@@ -1,97 +1,115 @@
-"""Backend setup. Import DuckDB only after setting the Sirius environment."""
+"""Owns a shared DuckDB instance and creates configured worker connections.
 
-import hashlib
-import os
-from pathlib import Path
+DuckDB is imported lazily, after the child sets the Sirius environment.
+Only explicit resource settings are applied; effective values are recorded.
+The root handles CPU references, while Sirius workers enable GPU execution.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from parallel_bench import config as configuration
+from parallel_bench import models
+
+if TYPE_CHECKING:
+    import duckdb
 
 
-def quote(value):
-    return "'" + str(value).replace("'", "''") + "'"
+RESOURCE_SETTINGS = (
+    "threads",
+    "external_threads",
+    "memory_limit",
+    "temp_directory",
+)
 
 
-def sha256_file(path):
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def configure_environment(config, output):
-    if config.backend != "sirius":
-        return
-    if not Path(config.sirius.extension_path).is_file():
-        raise ValueError(f"Sirius extension not found: {config.sirius.extension_path}")
-    try:
-        import yaml
-    except ImportError as exc:
-        raise RuntimeError("Install the Sirius extra: pip install -e '.[sirius]'") from exc
-    runtime = {}
-    if config.sirius.config_path:
-        runtime = yaml.safe_load(Path(config.sirius.config_path).read_text())
-    if not isinstance(runtime, dict):
-        raise ValueError("Sirius YAML must contain a mapping")
-    sirius = runtime.setdefault("sirius", {})
-    if not isinstance(sirius, dict):
-        raise ValueError("The sirius YAML key must contain a mapping")
-    # Set the startup admission limit explicitly, including for isolated controls.
-    sirius["max_concurrent_queries"] = 2
-    scan = sirius.get("executor", {}).get("scan_manager", {})
-    if "max_concurrent_queries" in scan:
-        scan["max_concurrent_queries"] = 2
-    target = output / "sirius-effective.yaml"
-    target.write_text(yaml.safe_dump(runtime, sort_keys=False))
-    os.environ["SIRIUS_CONFIG_FILE"] = str(target)
-    os.environ["CUDA_VISIBLE_DEVICES"] = config.sirius.gpu
+def quote(value: str) -> str:
+    """Quotes a SQL string literal, including filesystem paths."""
+    return "'" + value.replace("'", "''") + "'"
 
 
 class Backend:
-    def __init__(self, config):
+    """Keeps one database instance alive across all trial connections."""
+
+    def __init__(self, config: configuration.Config) -> None:
+        """Opens the shared database and initializes the selected backend."""
         try:
-            import duckdb
+            import duckdb  # Must follow Sirius/CUDA environment setup.
         except ImportError as exc:
-            raise RuntimeError("DuckDB is missing; install the wheel for your chosen engine revision") from exc
+            raise RuntimeError(
+                "Install DuckDB for the chosen engine revision"
+            ) from exc
         self.duckdb = duckdb
         self.config = config
-        options = {}
-        if config.backend == "sirius":
-            options["allow_unsigned_extensions"] = str(config.sirius.allow_unsigned_extensions).lower()
+        options: dict[str, str | bool | int | float | list[str]] = {}
+        if config.backend == models.BackendKind.SIRIUS:
+            options["allow_unsigned_extensions"] = str(
+                config.sirius.allow_unsigned_extensions
+            ).lower()
         self.root = duckdb.connect(config.db, config=options)
         try:
-            version = self.root.execute("PRAGMA version").fetchone()
-            self.version = {"library_version": version[0], "source_id": version[1],
-                            "python_package": duckdb.__version__}
-            expected = config.expected_source_id
-            actual = version[1]
-            if expected and not (len(actual) >= 10 and (expected.startswith(actual) or actual.startswith(expected))):
-                raise ValueError(f"DuckDB revision mismatch: expected {expected}, loaded {actual}")
-            self.root.execute(f"SET threads = {config.threads}")
-            self.root.execute("SET external_threads = 1")
-            self.root.execute("SET memory_limit = ?", [config.memory_limit])
-            if config.temp_directory:
-                self.root.execute("SET temp_directory = ?", [config.temp_directory])
-            self.root.execute("SET enable_progress_bar = false")
-            if config.backend == "sirius":
-                self.root.execute(f"LOAD {quote(config.sirius.extension_path)}")
-                # Metadata/reference queries use CPU, workers override this locally.
-                self.root.execute("SET gpu_execution = false")
-            self.settings = dict(self.root.execute("""
-                SELECT name, value FROM duckdb_settings()
-                WHERE name IN ('threads', 'external_threads', 'memory_limit',
-                               'temp_directory', 'scheduler_process_partial')
-            """).fetchall())
+            self.version = self._check_revision()
+            self._apply_settings()
+            self.settings = self._read_settings()
         except BaseException:
+            # Native resources must also be released on KeyboardInterrupt.
             self.root.close()
             raise
 
-    def connection(self):
-        # cursor() creates a new connection to the SAME native DatabaseInstance.
-        # Each worker creates, uses and closes its own connection.
+    def _check_revision(self) -> dict[str, str]:
+        """Returns engine identity, rejecting a mismatched source pin."""
+        version = self.root.execute("PRAGMA version").fetchone()
+        assert version is not None
+        actual = version[1]
+        expected = self.config.expected_source_id
+        matches = len(actual) >= 10 and (
+            expected.startswith(actual) or actual.startswith(expected)
+        )
+        if expected and not matches:
+            raise ValueError(
+                f"DuckDB revision mismatch: expected {expected}, "
+                f"loaded {actual}"
+            )
+        return {
+            "library_version": version[0],
+            "source_id": actual,
+            "python_package": self.duckdb.__version__,
+        }
+
+    def _apply_settings(self) -> None:
+        """Applies explicit resources and required backend behavior."""
+        for name in RESOURCE_SETTINGS:
+            value = getattr(self.config, name)
+            if value is not None:
+                # Setting names come only from the fixed whitelist above.
+                self.root.execute(f"SET {name} = ?", [value])
+        self.root.execute("SET enable_progress_bar = false")
+        if self.config.backend == models.BackendKind.SIRIUS:
+            self.root.execute(
+                f"LOAD {quote(self.config.sirius.extension_path)}"
+            )
+            self.root.execute("SET gpu_execution = false")
+
+    def _read_settings(self) -> dict[str, str]:
+        """Reads actual settings, including those chosen by DuckDB itself."""
+        return dict(
+            self.root.execute("""
+            SELECT name, value FROM duckdb_settings()
+            WHERE name IN ('threads', 'external_threads', 'memory_limit',
+                           'temp_directory', 'scheduler_process_partial')
+        """).fetchall()
+        )
+
+    def connection(self) -> duckdb.DuckDBPyConnection:
+        """Creates a worker connection to the root's database instance."""
         con = self.root.cursor()
         try:
             con.execute("SET enable_progress_bar = false")
-            if self.config.backend == "sirius":
-                fallback = str(self.config.sirius.enable_duckdb_fallback).lower()
+            if self.config.backend == models.BackendKind.SIRIUS:
+                fallback = str(
+                    self.config.sirius.enable_duckdb_fallback
+                ).lower()
                 con.execute(f"SET enable_duckdb_fallback = {fallback}")
                 con.execute("SET gpu_execution = true")
             return con
@@ -99,16 +117,20 @@ class Backend:
             con.close()
             raise
 
-    def close(self):
+    def close(self) -> None:
+        """Closes the root connection after all worker connections finish."""
         self.root.close()
 
 
-def load_tpch(con, extension_path=""):
+def load_tpch(con: duckdb.DuckDBPyConnection, extension_path: str = "") -> None:
+    """Loads TPC-H, installing it if necessary and no local path is supplied."""
     if extension_path:
         con.execute(f"LOAD {quote(extension_path)}")
         return
+    import duckdb  # Only called after the engine has already been initialized.
+
     try:
         con.execute("LOAD tpch")
-    except Exception:
+    except duckdb.Error:
         con.execute("INSTALL tpch")
         con.execute("LOAD tpch")
