@@ -120,9 +120,9 @@ def load_sirius(
 def configure_connection(
     connection: duckdb.DuckDBPyConnection, device: Device
 ) -> None:
-    """Enables GPU execution with CPU fallback."""
+    """Enables GPU execution without CPU fallback."""
     if device == Device.GPU:
-        connection.execute("SET enable_duckdb_fallback = true")
+        connection.execute("SET enable_duckdb_fallback = false")
         connection.execute("SET gpu_execution = true")
 
 
