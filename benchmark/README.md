@@ -60,7 +60,10 @@ backends. Reactivate it in later sessions with `source .venv/bin/activate`.
 
 ```bash
 python benchmark.py generate-table --db data/tpch.duckdb --scale-factor 10
-python benchmark.py benchmark --db data/tpch.duckdb --connections 4
+python benchmark.py benchmark --db data/tpch.duckdb --connections 1 \
+  --output results/cpu-baseline.json
+python benchmark.py benchmark --db data/tpch.duckdb --connections 4 \
+  --baseline results/cpu-baseline.json --output results/cpu-n4.json
 ```
 
 Generate the tables only once. DuckDB reports errors from table generation.
@@ -69,9 +72,48 @@ The first generation needs network access to install DuckDB's TPC-H extension.
 DuckDB chooses its engine resource defaults. `--connections` controls client
 streams, not DuckDB's internal worker threads.
 
-Omit `--seed` to give every stream the identical Q1–Q22 order. Pass `--seed 0`
-(or any integer) to generate a reproducible permutation for each stream. Use
-the same N and seed for CPU/GPU comparisons.
+Omit `--seed` to give every stream the identical Q1–Q22 order. This is the
+recommended starting point for cold-start comparisons: the isolated baseline
+and each measured stream then have the same query order. `--seed` still enables
+reproducible shuffling, but different stream permutations have different cache
+histories and would need their own isolated references for matched comparisons.
+
+## Cold-start measurements
+
+Each `benchmark` invocation performs **one measured workload**. It requests
+Linux cache eviction for the database file, opens a new database instance,
+then runs N streams. There is no preliminary query pass or warmup.
+
+First run N=1 without `--baseline` to save an isolated reference. Then start a
+separate Python process with `--baseline` to compare against that reference.
+Use the same database, backend and query order. Without `--baseline`, JSON
+contains QPS and query timings, with no `mean_slowdown` value.
+
+For the N=1 sanity check, compare a second fresh run against the first:
+
+```bash
+python benchmark.py benchmark --db data/tpch.duckdb --connections 1 \
+  --baseline results/cpu-baseline.json --output results/cpu-n1-check.json
+```
+
+Both N=1 and N>1 use worker connections and the same stream timing path. The
+baseline file is read outside timing; its queries are not executed again.
+
+Before opening DuckDB, the program calls `fsync` on the database file, then
+`POSIX_FADV_DONTNEED` over the whole file. Flushing first makes dirty pages
+eligible for eviction. This needs no root privileges and requests eviction
+only for this file, although other processes reading the same file share its
+page cache. [Linux documents this as best effort](https://man7.org/linux/man-pages/man2/posix_fadvise.2.html),
+so JSON records the reset method as **unverified**. It does not clear storage
+device/server caches or establish a guaranteed physical-disk cold start.
+Use the cluster's cache-control mechanism if strict storage-cold measurements
+are required. The implementation targets Linux.
+
+Cache-reset work and engine setup are outside timing. Cache contents naturally
+grow during Q1–Q22; the reset is at stream start, not between queries. Negative
+N=1 comparisons are still possible through variability or incomplete cache
+eviction; values are reported unchanged rather than clamped to zero. Prepared
+statements, timing boundaries and hot-cache warmups are deferred.
 
 ## GPU execution
 
@@ -79,9 +121,11 @@ Use the matched installation above on an allocated NVIDIA GPU node. Run each
 backend in a fresh process, using the same environment and database:
 
 ```bash
-python benchmark.py benchmark --connections 4 --device cpu --seed 0 \
-  --output results/cpu-n4.json
-python benchmark.py benchmark --connections 4 --device gpu --seed 0 \
+python benchmark.py benchmark --connections 1 --device gpu \
+  --sirius-extension "$HOME/.local/lib/sirius/duckdb-2.0.0/sirius.duckdb_extension" \
+  --output results/gpu-baseline.json
+python benchmark.py benchmark --connections 4 --device gpu \
+  --baseline results/gpu-baseline.json \
   --sirius-extension "$HOME/.local/lib/sirius/duckdb-2.0.0/sirius.duckdb_extension" \
   --output results/gpu-n4.json
 ```
@@ -127,16 +171,15 @@ generated startup YAML.
 
 ## What is measured
 
-The benchmark first executes Q1–Q22 sequentially to measure isolated latencies
-`L_q` on the selected backend. It then releases all N streams together at one
-barrier. Each stream
-fully fetches one query's result before starting its next query. There is no
-synchronization between subsequent queries.
+Isolated latencies `L_q` come from a separate N=1 invocation on the selected
+backend. The measured invocation releases its N streams together at one
+barrier. Each stream fully fetches one query's result before starting its next
+query. There is no synchronization between subsequent queries.
 
 - `C_s,q`: execute-and-fetch latency of query q in concurrent stream s.
 - `elapsed_s`: common barrier release to the last stream's completion;
   connection setup and cleanup are outside this interval.
-- `qps = 22 * N / elapsed_s`; baseline queries are excluded.
+- `qps = 22 * N / elapsed_s`.
 - `mean_slowdown = sum(C_s,q / L_q) / (22 * N) - 1`.
   This averages each query's latency ratio equally across all streams:
   **0** means no change, **+0.5** means 50% higher latency on average, and
@@ -148,17 +191,18 @@ Older JSON files used `aggregate_slowdown`, whose no-change value was 22.
 Convert those values with `aggregate_slowdown / 22 - 1`; new runs write
 `mean_slowdown` instead. For files containing `mean_slowdown_percent`, divide
 that value by 100. Negative values are retained to show lower
-measured latencies. Since isolated queries always run first, initialization
-and cache warming can contribute to negative values, especially at SF0.01.
+measured latencies. Baselines from the old combined-run workflow should be
+remeasured using the separate-process workflow.
 
-JSON contains these metrics, device, N, seed, each stream's query order, and all
-isolated/concurrent query latencies in seconds. Query IDs become string keys
-in JSON. The output file is written after measurement; rerunning with the same
-output path replaces it. Choose different filenames to retain multiple runs.
+JSON contains these metrics, device, N, seed, process ID, cache reset method,
+baseline path, each stream's query order, and measured latencies in seconds.
+Comparison runs also include the loaded isolated latencies. Query IDs become
+string keys in JSON. The output file is written after measurement; rerunning
+with the same output path replaces it. Choose different filenames to retain
+multiple runs.
 
-There is one baseline pass and one concurrent pass, with no result validation
-or explicit warmup phase. Baselines already warm data, and different query
-orders affect caches. These are initial exploratory measurements, not certified
+There is one measured pass per invocation, with no result validation or warmup
+phase. These are initial exploratory measurements, not certified
 TPC-H results. Any query error fails the run without writing new JSON metrics;
 connection cleanup still occurs. An old output file remains if the run fails,
 so choose a fresh filename for each experiment. GPU execution needs validation

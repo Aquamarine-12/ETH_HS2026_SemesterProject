@@ -1,7 +1,8 @@
 """Measures concurrent TPC-H streams on DuckDB CPU or Sirius GPU execution.
 
 Generate tables once, then benchmark N streams with optional seeded shuffling.
-Each query is also timed alone to provide the baseline for its slowdown.
+Measure an isolated baseline in a separate invocation before comparing runs.
+Each invocation requests database-file cache eviction before opening DuckDB.
 Results include query latencies, overall QPS, and mean relative slowdown.
 """
 
@@ -74,6 +75,22 @@ def make_streams(
         return [query_ids.copy() for _ in range(count)]
     rng = random.Random(seed)
     return [rng.sample(query_ids, len(query_ids)) for _ in range(count)]
+
+
+def reset_database_cache(database: Path) -> None:
+    """Requests Linux page-cache eviction before opening the database."""
+    with database.open("rb") as file:
+        # DONTNEED does not discard dirty pages, so flush this file first.
+        os.fsync(file.fileno())
+        # This is an eviction request, not proof that all pages were evicted.
+        os.posix_fadvise(file.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+
+
+def load_baseline(path: Path) -> QueryLatencies:
+    """Reads per-query latencies from a separately measured one-stream run."""
+    result = json.loads(path.read_text(encoding="utf-8"))
+    latencies = result["streams"][0]["query_latencies_s"]
+    return {int(query_id): latency for query_id, latency in latencies.items()}
 
 
 def load_sirius(
@@ -159,22 +176,23 @@ def run_concurrent(
 
 
 def calculate_metrics(
-    isolated: QueryLatencies,
+    isolated: QueryLatencies | None,
     concurrent: list[StreamResult],
     elapsed: float,
 ) -> dict[str, float]:
-    """Calculates QPS and mean per-query latency change from isolation."""
+    """Calculates QPS and optional slowdown against a separate baseline."""
     total_queries = sum(len(stream.latencies) for stream in concurrent)
+    metrics = {"qps": total_queries / elapsed}
+    if isolated is None:
+        return metrics
     total_slowdown = sum(
         latency / isolated[query_id]
         for stream in concurrent
         for query_id, latency in stream.latencies.items()
     )
-    return {
-        "qps": total_queries / elapsed,
-        # Average ratios equally across queries and streams, then center at 0.
-        "mean_slowdown": total_slowdown / total_queries - 1,
-    }
+    # Average ratios equally across queries and streams, then center at 0.
+    metrics["mean_slowdown"] = total_slowdown / total_queries - 1
+    return metrics
 
 
 def save_results(
@@ -182,16 +200,20 @@ def save_results(
     device: Device,
     seed: int | None,
     orders: list[QueryOrder],
-    isolated: QueryLatencies,
+    isolated: QueryLatencies | None,
     concurrent: list[StreamResult],
     elapsed: float,
+    baseline: Path | None,
 ) -> None:
     """Saves results only after every query succeeds and prints the metrics."""
     metrics = calculate_metrics(isolated, concurrent, elapsed)
     results = {
         "device": device,
+        "process_id": os.getpid(),
         "connections": len(orders),
         "seed": seed,
+        "baseline": str(baseline.resolve()) if baseline is not None else None,
+        "cache_reset": "fsync + POSIX_FADV_DONTNEED (best effort, unverified)",
         "total_queries": sum(len(stream.latencies) for stream in concurrent),
         "elapsed_s": elapsed,
         **metrics,
@@ -202,15 +224,14 @@ def save_results(
                 "query_order": order,
                 "query_latencies_s": stream.latencies,
             }
-            for stream_id, (order, stream) in enumerate(
-                zip(orders, concurrent)
-            )
+            for stream_id, (order, stream) in enumerate(zip(orders, concurrent))
         ],
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
     print(f"QPS: {metrics['qps']:.3f}")
-    print(f"Mean slowdown: {metrics['mean_slowdown']:+.3f}")
+    if isolated is not None:
+        print(f"Mean slowdown: {metrics['mean_slowdown']:+.3f}")
     print(f"Results: {output}")
 
 
@@ -221,8 +242,12 @@ def benchmark(
     output: Path,
     device: Device = Device.CPU,
     sirius_extension: Path = DEFAULT_SIRIUS_EXTENSION,
+    baseline: Path | None = None,
 ) -> None:
-    """Measures isolated and concurrent queries using the selected device."""
+    """Measures one cold-start workload, optionally using a saved baseline."""
+    isolated = load_baseline(baseline) if baseline is not None else None
+    print("Requesting database-file cache eviction (best effort)...")
+    reset_database_cache(database)
     options = (
         {"allow_unsigned_extensions": "true"} if device == Device.GPU else {}
     )
@@ -231,13 +256,12 @@ def benchmark(
             load_sirius(root, sirius_extension, connections, output)
         queries = load_queries(root)
         orders = make_streams(list(queries), connections, seed)
-        configure_connection(root, device)
-        print(f"Measuring isolated {device} query latencies...")
-        isolated = run_stream(root, queries, list(queries))
-        print(f"Running {connections} concurrent {device} streams...")
+        # N=1 uses the same worker/connection path as N>1. No query pass
+        # precedes measurement; the baseline comes from another process.
+        print(f"Measuring {connections} {device} stream(s)...")
         concurrent, elapsed = run_concurrent(root, queries, orders, device)
     save_results(
-        output, device, seed, orders, isolated.latencies, concurrent, elapsed
+        output, device, seed, orders, isolated, concurrent, elapsed, baseline
     )
 
 
@@ -254,6 +278,9 @@ def parse_arguments() -> argparse.Namespace:
     run.add_argument("--db", type=Path, default=Path("data/tpch.duckdb"))
     run.add_argument("--connections", type=int, default=1)
     run.add_argument("--seed", type=int, help="Shuffle streams reproducibly")
+    run.add_argument(
+        "--baseline", type=Path, help="JSON from a separate one-stream run"
+    )
     run.add_argument(
         "--device", type=Device, choices=list(Device), default=Device.CPU
     )
@@ -282,6 +309,7 @@ def main() -> None:
             args.output,
             args.device,
             args.sirius_extension,
+            args.baseline,
         )
 
 
