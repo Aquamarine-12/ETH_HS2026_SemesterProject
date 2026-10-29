@@ -1,0 +1,297 @@
+# Semester project handoff
+
+Saved at the user's request on 2026-10-29. This is a durable summary of the
+conversation and implementation decisions, not a verbatim chat transcript.
+Read the current source and README before changing behavior; update this
+document when important decisions change.
+
+## Project and sources
+
+This ETH semester project / mini-thesis compares CPU execution in DuckDB with
+GPU execution through Sirius using concurrent TPC-H query streams.
+
+- Project PDF: `/home/mauve/ETH/HS 2026/Semester project/CPU_vs_GPU_DB_anon.pdf`.
+- Original task discussion supplied by the user:
+  <https://chatgpt.com/share/6ae0fb49-ce08-83ed-a97f-7664ab44919d>.
+- Current implementation: [benchmark/benchmark.py](benchmark/benchmark.py).
+- Commands, installation, and measurement details:
+  [benchmark/README.md](benchmark/README.md).
+- Persistent collaboration preferences: [AGENTS.md](AGENTS.md).
+
+The user has a local Git repository and a GitHub remote, and accesses an Ubuntu
+24.04 cluster over SSH. Cluster examples used
+`~/projects/ETH_HS2026_SemesterProject/benchmark` and a `tpch-bench` environment.
+Cluster commands and installation instructions were supplied, but the agent
+has not installed anything on or validated GPU execution on that cluster.
+
+## Scope and architecture decisions
+
+An earlier implementation had more infrastructure: configuration classes,
+backend abstractions, validation, metrics/artifact modules, hashes, and several
+files. The user found it noisy and explicitly authorized starting over because
+that work was already committed. Those abstractions are not requirements to
+restore. The old throwaway prototype is outside the current benchmark's scope.
+
+The user briefly considered multiple modules, then explicitly chose one file
+for now, to decide how to split it after seeing the core code. There are only
+two commands: `generate-table` and `benchmark`. No large config class, extra
+execution modes, result validation, or general experiment framework is wanted
+yet. Build the research methodology iteratively.
+
+The code uses type aliases for query collections, a `Device` enum, and a small
+`StreamResult` dataclass. These clarify the core logic without recreating the
+old framework. Functions should have concise docstrings, annotations, useful
+comments, and generally fewer than 40 lines. The user requested Google Python
+style, with inspiration from Google's C++ style guide.
+
+Do not use Git unless explicitly asked. The user performs Git operations.
+The repository's ignore rules already cover `.venv` directories,
+`.specstory/*`, Python caches, DuckDB database files and associated files,
+and generated benchmark data/results. Large database files caused a slow
+`git add` earlier; do not add databases to version control.
+
+## Workload and DuckDB API
+
+- Generate TPC-H tables once into a persistent database using DuckDB's `tpch`
+  extension and `CALL dbgen(sf=...)`.
+- Obtain the 22 fixed SQL queries from `tpch_queries()`.
+- Create N worker connections using `root.cursor()`. They have independent
+  connection contexts and share one DuckDB database instance.
+- Use a `ThreadPoolExecutor` with one worker per connection. Each connection
+  executes its complete stream sequentially, fetching the whole result before
+  submitting the next query.
+- Each stream contains all 22 queries. Without `--seed`, all streams use
+  Q1 through Q22. An explicit seed creates reproducible per-stream
+  permutations using one seeded random generator.
+- Release streams together at one starting barrier. There is no barrier
+  between later queries. N=1 follows the same worker/connection path as N>1.
+- Leave DuckDB's resource settings at engine defaults. An earlier suggestion
+  to default memory to 32 GB was superseded by this decision. Connections are
+  client streams, not DuckDB's internal worker thread count.
+- No prepared statements, warmup, repetitions, or validation are implemented.
+
+DuckDB is embedded in the Python process; there is no database server or
+network query submission. Each per-query timer currently wraps
+`connection.execute(sql).fetchall()`. It therefore includes Python/API costs,
+parsing, binding, optimization/planning, execution/queueing, necessary data
+reads and transfers, and result fetching/conversion. The starting barrier
+synchronizes client workers, not the instant execution operators begin.
+
+## Metrics and their evolution
+
+Let `L_q` be query q's latency from a separate N=1 baseline, and `C_s,q` its
+latency in stream s of the measured run.
+
+```text
+qps = 22 * N / elapsed_s
+mean_slowdown = sum(C_s,q / L_q) / (22 * N) - 1
+```
+
+`elapsed_s` runs from the starting barrier's release to the last stream's
+completion. Setup, cache reset, and connection cleanup are excluded.
+
+The slowdown equally weights all query latency ratios across all streams;
+it is not a ratio of total stream runtimes. Zero means unchanged latency,
+`+0.5` means 50% higher latency on average, and `-0.2` means 20% lower. The
+user explicitly requested an absolute number, not a percentage: no factor of
+100. Preserve negative measurements rather than clamping them.
+
+Each backend has its own isolated baseline. This slowdown measures the effect
+of concurrency within that backend; it is not CPU-versus-GPU speedup.
+
+Earlier `aggregate_slowdown` averaged a sum of 22 ratios across N streams,
+so its no-change value was 22. Convert it with `aggregate_slowdown / 22 - 1`.
+A short-lived `mean_slowdown_percent` field used a factor of 100; divide that
+by 100. Current output uses `mean_slowdown` only when a baseline is supplied.
+
+Per-query concurrent latencies and loaded isolated latencies are retained in
+JSON, together with every stream's order. This was an explicit user request.
+
+## Cold-start mechanism: latest implemented work
+
+The old program timed isolated queries and then concurrent streams in the
+same invocation. The user observed negative slowdown even with N=1, including
+at SF10. This suggested a measurement bias from the isolated pass warming
+caches for the later pass, although negative values alone do not prove its
+cause. The user's goal is an N=1 comparison near zero without a systematic
+negative bias. This is an experimental goal, not a guaranteed outcome.
+
+The user chose to address caching first, then revisit timing/barriers and
+prepared statements. Only the cold-start mechanism was authorized for now.
+
+Current behavior:
+
+1. Each `benchmark` invocation performs one measured workload. There is no
+   hidden preliminary isolated pass.
+2. Run N=1 without `--baseline` in one Python process to save reference
+   per-query times and QPS. It does not invent a zero slowdown.
+3. Run another fresh process with `--baseline results/reference.json` and
+   the desired N. The baseline's first stream supplies `L_q`; those queries
+   are not rerun before measurement.
+4. Before opening DuckDB, `reset_database_cache` opens the database file,
+   calls `os.fsync`, then requests whole-file Linux page-cache eviction via
+   `os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)`.
+5. Each fresh CLI process creates a new DuckDB instance and, for GPU, a new
+   Sirius runtime. Calling the Python function repeatedly in one process is
+   not the documented fresh-process workflow.
+
+Flushing first makes dirty pages eligible for eviction. This is a user-local,
+file-specific, best-effort request: it does not guarantee physical-disk cold
+reads or clear storage controller/server caches. Other processes can refill
+the same file's shared page cache. The program records the cache reset as
+unverified; it does not inspect page residency during production runs.
+No root access, global `drop_caches`, or fabricated success fallback is used.
+Cache-reset failures propagate rather than silently producing new results.
+
+The reset is before the stream, not before every query. Caches naturally warm
+while Q1 through Q22 execute. Identical query order is the recommended starting
+point: shuffled streams have different cache histories and would need matched
+isolated references to isolate concurrency cleanly.
+
+Baseline files should use the same backend, database, and query order, and
+should be regenerated with this workflow rather than reused from the old
+combined-run implementation. The code trusts users to choose compatible
+files; it does not implement a configuration compatibility framework.
+
+## Sirius behavior
+
+The default local extension path is:
+
+```text
+$HOME/.local/lib/sirius/duckdb-2.0.0/sirius.duckdb_extension
+```
+
+`--sirius-extension PATH` overrides it. Earlier instructions and code used
+inconsistent unversioned/relative paths and caused `FileNotFoundError` on the
+cluster. The default now matches the documented install path. An argument
+cannot create a missing binary: locate the actual uncompressed extension or
+install it first.
+
+Before loading Sirius, the program writes the output basename with suffix
+`.sirius.yaml`, containing:
+
+```yaml
+sirius:
+  max_concurrent_queries: N
+```
+
+It sets `SIRIUS_CONFIG_FILE` to this file's absolute path, then loads the
+unsigned local extension. Admission means the maximum number of active
+queries; setting it to N permits all N streams to have a query active.
+The YAML is necessary because this setting is startup-only in Sirius's
+documented DuckDB interface, with no corresponding runtime SQL setter or
+`duckdb.connect(config=...)` setting. The user explicitly requested an inline
+comment explaining this; it is in `load_sirius`.
+
+The generated file replaces inherited configuration selection and leaves
+other Sirius settings at their defaults. Scheduler-provided GPU visibility
+is preserved. The root connection sets `gpu_execution = false` for metadata
+queries. Timed worker connections explicitly set `gpu_execution = true` and
+`enable_duckdb_fallback = true`.
+
+CPU fallback being enabled is a user edit to preserve. GPU-labeled runs can
+include CPU fallback; they do not prove all operators or queries ran on GPU.
+
+Sirius's default Quent telemetry is currently left enabled. Its local traces,
+normally in `telemetry_data/`, describe plans, operators, tasks, threads,
+queues, and timing; they are separate from our benchmark JSON. The README
+explains disabling it with `sirius.telemetry.enable_quent: false`. The user
+has not requested that behavior change, so do not silently apply it.
+
+## Installation decisions
+
+All installation is private to the user's account on Ubuntu 24.04, with no
+machine-wide packages installed by this project. Python 3.11+ is required.
+The README installs `duckdb==2.0.0` into a venv and a matching Sirius extension
+under the versioned path above. CPU and GPU must use the same compatible
+DuckDB engine/environment for a fair comparison. Verify the actual installed
+pair by loading Sirius inside that environment before running benchmarks.
+
+The documented Sirius download used its `latest` release, described as
+`13dbefe` and DuckDB 2.0.0 when checked in this conversation. That release tag
+is moving: this is a historical observation, not an immutable version pin.
+Recheck official release compatibility before future installation updates.
+Use an allocated NVIDIA GPU node and a binary appropriate to the architecture
+and driver/CUDA support. Full commands and upstream links are in the README.
+
+## Result files
+
+Current JSON fields include device, process ID, N, seed, baseline path or
+null, cache-reset method, total queries, elapsed seconds, QPS, optional mean
+slowdown, loaded isolated latencies or null, and each stream's order and
+per-query latencies in seconds. JSON query IDs are string keys.
+
+Output is written only after successful measurement. Reusing a filename
+replaces it on success; failure can leave an older file in place. Choose new
+output names for separate experiments. GPU startup YAML is a separate file
+and can be written before measurement succeeds.
+
+## Validation performed and limits
+
+The cold-start implementation was checked using the existing local prototype
+venv's DuckDB 1.5.6, not the documented cluster DuckDB 2.0.0/Sirius pair.
+
+- Generated an SF0.01 database and ran separate-process N=1 baseline, N=1
+  comparison, and N=2 comparison with all 22 queries per stream.
+- Checked different process IDs, exact loaded baseline timings, and recomputed
+  QPS and slowdown from the saved JSON.
+- Checked that N=2 executes only its two measured streams, with no hidden
+  isolated pass, and that cache reset precedes opening DuckDB.
+- Checked flush/eviction call order and propagation of cache-reset failures.
+- Independently observed page eviction on a local 8 MiB file using `mincore`:
+  2048 resident pages before the request, zero afterward. This does not prove
+  eviction behavior for the cluster filesystem or establish disk-cold reads.
+- Checked syntax, annotations/docstrings, function/line lengths, and README
+  shell block syntax. No permanent testing framework was introduced.
+
+One illustrative local smoke test still produced roughly -0.084 slowdown
+for N=1 and +0.006 for N=2 at SF0.01. One pass on a tiny dataset is noisy;
+the implementation does not guarantee that all N=1 results are nonnegative.
+No actual GPU/cluster validation has been performed by the agent.
+
+Earlier user-reported SF0.01/N=4 results, under the old metric/workflow, were
+CPU 540.672 QPS with aggregate slowdown 17.703, and GPU 84.851 QPS with
+aggregate slowdown 19.955. These are historical exploratory observations,
+not results from the new cold-start method or a validated comparison.
+
+## Immediate next steps and deferred work
+
+Run separate-process N=1 baseline and N=1 comparison on the real cluster,
+then N=2 or more. Use fresh output filenames, a separate baseline for each
+backend, and identical query order while examining cache effects.
+
+From the `benchmark` directory, for the SF10 database already used there:
+
+```bash
+python benchmark.py benchmark --db data/sf10.duckdb --connections 1 \
+  --output results/cpu-baseline.json
+python benchmark.py benchmark --db data/sf10.duckdb --connections 1 \
+  --baseline results/cpu-baseline.json --output results/cpu-n1.json
+python benchmark.py benchmark --db data/sf10.duckdb --connections 2 \
+  --baseline results/cpu-baseline.json --output results/cpu-n2.json
+```
+
+For GPU, add `--device gpu`, use GPU-specific output/baseline files, and
+override `--sirius-extension` if the binary is installed elsewhere.
+
+After assessing cache comparability, return to the user's timing/barrier
+question and prepared statements for both DuckDB and Sirius. Preparing queries
+may remove some frontend planning work, but does not eliminate execution
+dispatch, result fetching, scheduling, I/O, or GPU transfers; exact reuse and
+Sirius support must be verified before implementation. Hot-cache warmup rounds,
+repeated trials, result validation, telemetry changes, and richer experiment
+infrastructure remain deferred.
+
+The user earlier requested a reminder to revisit walkthrough points 4–10.
+Their complete original numbered text is not available in this handoff;
+do not invent its contents or claim it has already been reviewed.
+
+## Memory status at the time of saving
+
+Local Codex configuration now has `features.memories`,
+`memories.use_memories`, and `memories.generate_memories` set to true.
+`~/.codex/memories/` is accessible but was empty when checked. This session
+has no exposed tool to force a write to the automatic memory store. These
+repository files provide immediate durable context; they are not a claim that
+automatic memory generation has already completed. No Git commands were used
+to save them.
