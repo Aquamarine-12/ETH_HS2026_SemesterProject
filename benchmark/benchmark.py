@@ -24,6 +24,10 @@ Queries: TypeAlias = dict[int, str]
 QueryOrder: TypeAlias = list[int]
 QueryLatencies: TypeAlias = dict[int, float]
 
+DEFAULT_SIRIUS_EXTENSION = (
+    Path.home() / ".local/lib/sirius/duckdb-2.0.0/sirius.duckdb_extension"
+)
+
 
 class Device(StrEnum):
     """Selects the engine used for both isolated and concurrent queries."""
@@ -216,7 +220,7 @@ def benchmark(
     seed: int | None,
     output: Path,
     device: Device = Device.CPU,
-    sirius_extension: Path = Path("sirius.duckdb_extension"),
+    sirius_extension: Path = DEFAULT_SIRIUS_EXTENSION,
 ) -> None:
     """Measures isolated and concurrent queries using the selected device."""
     options = (
@@ -256,8 +260,8 @@ def parse_arguments() -> argparse.Namespace:
     run.add_argument(
         "--sirius-extension",
         type=Path,
-        default=Path("sirius.duckdb_extension"),
-        help="Local Sirius binary (default: ./sirius.duckdb_extension)",
+        default=DEFAULT_SIRIUS_EXTENSION,
+        help="Local Sirius binary (default: %(default)s)",
     )
     run.add_argument(
         "--output", type=Path, default=Path("results/results.json")

@@ -103,9 +103,19 @@ Every timed GPU connection enables `gpu_execution` and CPU fallback through
 `enable_duckdb_fallback`. GPU runs can therefore include CPU execution when
 Sirius falls back. See the upstream [execution settings](https://github.com/sirius-db/sirius/blob/main/docs/super-sirius/configuration.md).
 
-The default extension path is `./sirius.duckdb_extension`. Argument types and
-device choices are handled by argparse; other input errors are left to Python
-or DuckDB.
+The default extension path is
+`$HOME/.local/lib/sirius/duckdb-2.0.0/sirius.duckdb_extension`, matching the
+installation above. Use `--sirius-extension` for a different location. To find
+an existing installation (including the unversioned path from earlier setup
+instructions):
+
+```bash
+find "$HOME/.local/lib" -type f -name '*sirius*.duckdb_extension*'
+```
+
+Pass the uncompressed file's actual path to `--sirius-extension`. Argument
+types and device choices are handled by argparse; other input errors are left
+to Python or DuckDB.
 
 Sirius also writes local [Quent telemetry traces](https://github.com/sirius-db/sirius/blob/main/docs/super-sirius/quent-telemetry.md),
 normally under `telemetry_data/`. These describe query plans, operators,
