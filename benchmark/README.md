@@ -14,7 +14,7 @@ python benchmark.py generate-table --db data/tpch.duckdb --scale-factor 0.01
 python benchmark.py benchmark --db data/tpch.duckdb --connections 4
 ```
 
-Generate the tables only once; generation refuses to overwrite a database.
+Generate the tables only once. DuckDB reports errors from table generation.
 SF0.01 is a small functionality check. Use a larger scale factor for experiments.
 The first generation needs network access to install DuckDB's TPC-H extension.
 DuckDB chooses its engine resource defaults. `--connections` controls client
@@ -46,9 +46,13 @@ inherited config selection; other Sirius settings use engine defaults.
 GPU visibility assigned by the scheduler is preserved. Use a Sirius revision
 supporting [concurrent queries](https://github.com/sirius-db/sirius/blob/main/docs/super-sirius/concurrent-queries.md).
 
-Every timed GPU connection explicitly enables `gpu_execution` and disables
-`enable_duckdb_fallback`, so Sirius errors fail the benchmark rather than
-producing CPU timings. See the upstream [execution settings](https://github.com/sirius-db/sirius/blob/main/docs/super-sirius/configuration.md).
+Every timed GPU connection enables `gpu_execution` and CPU fallback through
+`enable_duckdb_fallback`. GPU runs can therefore include CPU execution when
+Sirius falls back. See the upstream [execution settings](https://github.com/sirius-db/sirius/blob/main/docs/super-sirius/configuration.md).
+
+The default extension path is `./sirius.duckdb_extension`. Argument types and
+device choices are handled by argparse; other input errors are left to Python
+or DuckDB.
 
 ## What is measured
 

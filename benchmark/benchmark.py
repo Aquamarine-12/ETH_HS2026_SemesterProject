@@ -7,7 +7,6 @@ Results include query latencies, overall QPS, and mean stream slowdown.
 
 import argparse
 import json
-import math
 import os
 import random
 import threading
@@ -97,7 +96,7 @@ def load_sirius(
 def configure_connection(
     connection: duckdb.DuckDBPyConnection, device: Device
 ) -> None:
-    """Enables GPU execution explicitly and disables CPU fallback."""
+    """Enables GPU execution with CPU fallback."""
     if device == Device.GPU:
         connection.execute("SET enable_duckdb_fallback = true")
         connection.execute("SET gpu_execution = true")
@@ -136,9 +135,9 @@ def run_concurrent(
         started_at = time.perf_counter()
 
     barrier = threading.Barrier(len(orders), action=mark_start)
-    # TODO: what is this?
+    # ExitStack manages one `with connection` block per worker, closing all
+    # connections when the block exits, including when a query raises an error.
     with ExitStack() as stack:
-        # Each cursor is a connection; the stack closes them even on failure.
         connections = [stack.enter_context(root.cursor()) for _ in orders]
         for connection in connections:
             configure_connection(connection, device)
@@ -213,17 +212,14 @@ def benchmark(
     seed: int | None,
     output: Path,
     device: Device = Device.CPU,
-    sirius_extension: Path | None = None,
+    sirius_extension: Path = Path("sirius.duckdb_extension"),
 ) -> None:
     """Measures isolated and concurrent queries using the selected device."""
-    if device == Device.GPU and sirius_extension is None:
-        raise ValueError("GPU execution requires --sirius-extension")
     options = (
         {"allow_unsigned_extensions": "true"} if device == Device.GPU else {}
     )
     with duckdb.connect(str(database), read_only=True, config=options) as root:
         if device == Device.GPU:
-            assert sirius_extension is not None
             load_sirius(root, sirius_extension, connections, output)
         queries = load_queries(root)
         orders = make_streams(list(queries), connections, seed)
@@ -238,7 +234,7 @@ def benchmark(
 
 
 def parse_arguments() -> argparse.Namespace:
-    """Parses the two commands and checks their required arguments."""
+    """Parses the two commands and their arguments."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
     generate = commands.add_parser(
@@ -254,21 +250,15 @@ def parse_arguments() -> argparse.Namespace:
         "--device", type=Device, choices=list(Device), default=Device.CPU
     )
     run.add_argument(
-        "--sirius-extension", type=Path, help="Local Sirius binary"
+        "--sirius-extension",
+        type=Path,
+        default=Path("sirius.duckdb_extension"),
+        help="Local Sirius binary (default: ./sirius.duckdb_extension)",
     )
     run.add_argument(
         "--output", type=Path, default=Path("results/results.json")
     )
-    args = parser.parse_args()
-    if args.command == "generate-table":
-        if not math.isfinite(args.scale_factor) or args.scale_factor <= 0:
-            parser.error("--scale-factor must be a finite positive number")
-    else:
-        if args.connections < 1:
-            parser.error("--connections must be at least 1")
-        if args.device == Device.GPU and args.sirius_extension is None:
-            parser.error("--device gpu requires --sirius-extension")
-    return args
+    return parser.parse_args()
 
 
 def main() -> None:
