@@ -2,7 +2,7 @@
 
 Generate tables once, then benchmark N streams with optional seeded shuffling.
 Each query is also timed alone to provide the baseline for its slowdown.
-Results include query latencies, overall QPS, and mean stream slowdown.
+Results include query latencies, overall QPS, and mean relative slowdown.
 """
 
 import argparse
@@ -81,6 +81,9 @@ def load_sirius(
     """Loads Sirius with startup admission for N concurrent queries."""
     if not extension.is_file():
         raise FileNotFoundError(f"Sirius extension does not exist: {extension}")
+    # Sirius exposes this limit only through startup YAML, not DuckDB's
+    # SET/connect(config=...) API. Generate it before LOAD initializes the
+    # shared runtime, allowing as many active queries as we have streams.
     config_path = output.with_suffix(".sirius.yaml")
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
@@ -156,7 +159,7 @@ def calculate_metrics(
     concurrent: list[StreamResult],
     elapsed: float,
 ) -> dict[str, float]:
-    """Calculates QPS and summed query slowdowns averaged over streams."""
+    """Calculates QPS and mean per-query latency change from isolation."""
     total_queries = sum(len(stream.latencies) for stream in concurrent)
     total_slowdown = sum(
         latency / isolated[query_id]
@@ -165,7 +168,8 @@ def calculate_metrics(
     )
     return {
         "qps": total_queries / elapsed,
-        "aggregate_slowdown": total_slowdown / len(concurrent),
+        # Average ratios equally across queries and streams, then center at 0.
+        "mean_slowdown": total_slowdown / total_queries - 1,
     }
 
 
@@ -202,7 +206,7 @@ def save_results(
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
     print(f"QPS: {metrics['qps']:.3f}")
-    print(f"Aggregate slowdown: {metrics['aggregate_slowdown']:.3f}")
+    print(f"Mean slowdown: {metrics['mean_slowdown']:+.3f}")
     print(f"Results: {output}")
 
 
