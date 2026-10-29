@@ -1,50 +1,49 @@
-# Two-query CPU/GPU benchmark
+# TPC-H stream benchmark
 
-## TL;DR
+One Python file, two commands. N connections share one DuckDB instance; each
+executes its own shuffled permutation of the 22 TPC-H queries, one at a time.
+This first iteration uses DuckDB on CPU.
 
-- Compare two fixed TPC-H queries alone and concurrently, on DuckDB or Sirius.
-- Two caller threads share one database instance and a Python start barrier.
-- Report each query's **isolated latency L_i**, **concurrent completion C_i**, and
-  **slowdown C_i/L_i**, plus pair makespan and submission skew.
-- Omitted engine resource settings use DuckDB's defaults. Actual values are saved.
-- Results live in a fresh `results/<run-id>/` directory. Start with
-  `paired_latencies.csv` for individual L_i/C_i values and `summary.json` for stats.
-- CPU integration is tested locally; Sirius execution still needs GPU validation.
-
-## Quick CPU check
-
-From `benchmark/`, with Python 3.11+:
+From this directory, with Python 3.11+:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements-cpu-smoke.txt
-python -m parallel_bench prepare --config configs/cpu-smoke.toml
-python -m parallel_bench run --config configs/cpu-smoke.toml
+python -m pip install 'duckdb==1.5.6'
+python benchmark.py generate-table --db data/tpch.duckdb --scale-factor 0.01
+python benchmark.py benchmark --db data/tpch.duckdb --connections 4 --seed 0 --output results/n4.json
 ```
 
-Preparation runs once and refuses to overwrite an existing database. Skip it
-if that dataset already exists. SF0.01 is a functionality check, not a useful
-basis for performance conclusions. This CPU wheel is not automatically
-compatible with a different Sirius build.
+Generate the tables only once; generation refuses to overwrite a database.
+SF0.01 is a small functionality check. Use a larger scale factor for experiments.
+The first generation needs network access to install DuckDB's TPC-H extension.
+DuckDB chooses its engine resource defaults. `--connections` controls client
+streams, not DuckDB's internal worker threads.
 
-## More detail when needed
+## What is measured
 
-- [Cluster installation](docs/cluster-setup.md): Ubuntu 24.04, user-local setup,
-  DuckDB and Sirius versions, build commands, and GPU prerequisites.
-- [Configuration](docs/configuration.md): all options, overrides, SQL sources,
-  engine defaults, and where the effective Sirius YAML is written.
-- [Methodology](docs/methodology.md): timing definitions, warmup tradeoffs,
-  validation, artifacts, SHA hashes, and limitations.
-- [Code map and development](docs/development.md): module responsibilities,
-  tests, formatting and type checks.
+The benchmark first executes Q1–Q22 sequentially to measure isolated latencies
+`L_q`. It then releases all N streams together at one barrier. Each stream
+fully fetches one query's result before starting its next query. There is no
+synchronization between subsequent queries.
 
-Preview Sirius YAML without running queries or requiring a GPU:
+- `C_s,q`: execute-and-fetch latency of query q in concurrent stream s.
+- `elapsed_s`: common barrier release to the last stream's completion;
+  connection setup and cleanup are outside this interval.
+- `qps = 22 * N / elapsed_s`; baseline queries are excluded.
+- `aggregate_slowdown = sum(C_s,q / L_q for all streams and queries) / N`.
+  This averages the sum of query slowdowns across streams. Its no-slowdown
+  value is **22**, not 1.
 
-```bash
-python -m pip install -e '.[sirius]'
-python -m parallel_bench sirius-config --config configs/sirius.toml
-```
+JSON contains these metrics, N, seed, each stream's query order, and all
+isolated/concurrent query latencies in seconds. Query IDs become string keys
+in JSON. The output file is written after measurement; rerunning with the same
+output path replaces it. Choose different filenames to retain multiple runs.
 
-All commands here only affect local files/environments. The runner performs no
-Git operations. Git ignores generated databases, environments, and run artifacts.
+There is one baseline pass and one concurrent pass, with no result validation
+or explicit warmup phase. Baselines already warm data, and different query
+orders affect caches. These are initial exploratory measurements, not certified
+TPC-H results. Ordinary query errors stop the run without writing new metrics.
+
+Read `benchmark.py` from top to bottom: generation → query loading → stream
+execution → concurrency → metrics → benchmark coordination → CLI.

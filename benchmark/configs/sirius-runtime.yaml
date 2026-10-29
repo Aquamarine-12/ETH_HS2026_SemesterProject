@@ -1,5 +1,0 @@
-# Merge hardware-specific memory/storage settings here, using the reference
-# for your selected Sirius revision. Relative paths within this YAML are
-# interpreted by Sirius relative to the process working directory.
-sirius:
-  max_concurrent_queries: 2
