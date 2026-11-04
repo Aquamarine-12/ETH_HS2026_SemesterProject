@@ -1,0 +1,13 @@
+# SF10 on both backends, with ten samples at every connection count.
+# Paths are relative to this file. Each sample/backend gets its own N=1 baseline.
+[run]
+db = "data/sf10.duckdb"
+device = "cpu"
+connections = 2
+sirius_extension = "~/.local/lib/sirius/sirius.duckdb_extension"
+results_dir = "results"
+
+[sweep]
+devices = ["cpu", "gpu"]
+connections = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+samples = 5

@@ -1,15 +1,143 @@
 # TPC-H stream benchmark
 
-One Python file, two commands. N connections share one DuckDB instance; each
-executes the 22 TPC-H queries, one at a time. Choose CPU execution (default) or
-GPU execution through a locally installed Sirius extension.
+Generate a database once, then measure N concurrent 22-query streams on DuckDB
+CPU or Sirius GPU, starting each workload with a cache-eviction request. Repeat runs
+with `sweep.py`, then generate Matplotlib figures with `plot.py`.
 
-The [timing findings](experiments/frontend_overhead_timing/TIMING_FINDINGS.md) summarize the measured planning
-overhead and why complete execute-and-fetch timing is retained. Reproduce the
-[timing experiment](experiments/frontend_overhead_timing/TIMING_EXPERIMENT.md) with `bash experiments/frontend_overhead_timing/run_timing_experiment.sh`.
-It uses a preserved source snapshot, independent of future benchmark changes.
+## Quick start
+
+Run these commands from this directory, inside your Python environment.
+`experiment.toml` contains the cluster's SF10 database and unversioned Sirius
+path. Edit it for your installation; all TOML paths are relative to that file.
+
+```bash
+# Only if you have not generated this database already.
+python benchmark.py generate-table --config experiment.toml --scale-factor 10
+
+# One isolated reference, followed by one two-connection comparison.
+python benchmark.py benchmark --config experiment.toml --connections 1 \
+  --output results/gpu-baseline.json
+python benchmark.py benchmark --config experiment.toml \
+  --baseline-json results/gpu-baseline.json
+
+# Ten samples by default, each with its own baseline and N=2/4/8 comparisons.
+python sweep.py --config experiment.toml
+
+# Or a short trial: three samples, N=1 and N=2 only.
+python sweep.py --config experiment.toml --samples 3 --connections 1 2
+
+# Use the index path printed by sweep.py.
+python -m pip install -r requirements-plot.txt
+python plot.py results/sweep-YYYYMMDD-HHMMSS-ffffff/index.json
+```
+
+Without an explicit output filename, each run or sweep creates a new directory
+under `results/`. An explicit `--output` still writes exactly that JSON path.
+A single N>1 run needs `--baseline-json` to report slowdown; otherwise it
+reports QPS and query timings only. `--baseline` remains a CLI alias.
+
+For CPU, pass `--device cpu` to a single run, or set `device = "cpu"` in TOML
+before a sweep.
+
+## Configuration
+
+Built-in defaults are overridden by `[run]` TOML values, then explicit CLI
+arguments. CLI paths are relative to your working directory; TOML paths are
+relative to the TOML file. Both expand `~`.
+
+```toml
+[run]
+db = "data/sf10.duckdb"
+device = "gpu"
+connections = 2
+sirius_extension = "~/.local/lib/sirius/sirius.duckdb_extension"
+results_dir = "results"
+# seed = 42
+# baseline_json = "results/gpu-baseline.json"
+
+[sweep]
+connections = [1, 2, 4, 8]
+samples = 10
+# Defaults to [run].device if omitted.
+# devices = ["cpu", "gpu"]
+```
+
+Omit `seed` for identical Q1–Q22 order in every stream. Explicit seeds enable
+reproducible shuffling, but different query orders have different cache
+histories. DuckDB chooses its internal resource defaults; connections count
+client streams, not engine worker threads.
+
+The sweep runs sequentially, with a fresh Python process per measurement.
+Every sample/backend combination gets one N=1 baseline, followed by
+its requested N>1 runs. Requested N=1 points reuse that baseline; they do not
+trigger a second run or receive an artificial zero slowdown. The main entry
+point prints a warning explaining this. Sweep references are always generated
+automatically, regardless of a single-run baseline configured in TOML.
+
+## Cache and timing
+
+Each measurement requests database-file eviction before opening DuckDB:
+`fsync`, followed by `POSIX_FADV_DONTNEED`. **This is best effort**, not proof
+of a physical-disk cold start. It does not clear storage-device/server caches;
+other readers can refill the shared Linux page cache. No root access is needed.
+This caveat lives here rather than in a repeated JSON description field.
+
+Each worker executes its stream once, starting at a shared barrier. There is
+no preliminary query pass. Cache contents naturally change during execution;
+the eviction request happens before the workload, not between queries.
+
+Each query timer includes `execute(sql).fetchall()`. Overall elapsed time is
+measurement-barrier release to the last stream's completion. Setup, cache
+reset, output writing, and connection cleanup are excluded. QPS counts
+only the measured 22N queries. Values below zero remain visible in slowdown.
+
+The [timing findings](experiments/frontend_overhead_timing/TIMING_FINDINGS.md)
+explain the retained end-to-end timing method. The preserved profiling
+experiment is independent of the active modules and remains unchanged.
+
+## Results and figures
+
+Each result contains effective run metadata, QPS, elapsed seconds, optional
+mean slowdown, and every stream's query order and latencies. Baseline links
+are relative to the result file. Sweeps also write effective `settings.json`
+and an `index.json` linking all samples, including their baseline associations.
+Copy the whole sweep directory to plot it on another machine; plotting needs
+NumPy and Matplotlib, but no DuckDB, Sirius, or GPU.
+
+The plotter produces PNG and PDF figures for QPS versus N, mean slowdown
+versus N, and per-query latency/slowdown. Curves show medians across repeated
+samples with 95% bootstrap confidence bars. Streams are first summarized
+within each run; bootstrap resampling preserves sample blocks and references.
+
+Baseline-role records appear in QPS/latency plots, not slowdown plots.
+Required missing baseline files or data cause an error, with no substituted
+values or dropped measurements. To plot baseline-only results, request:
+
+```bash
+python plot.py path/to/index.json --metrics qps latency
+```
+
+A single result JSON is also accepted; it supplies a single measured sample.
+Use `--output path/to/figures` to choose the figure directory.
+See [RESULTS.md](RESULTS.md) for the JSON fields, formula, and output layout.
+
+## Code map
+
+- `benchmark.py`: entry point, progress/reporting, and writing successful runs.
+- `core.py`: typed settings/results, database setup, workers, and timing.
+- `cli.py`: argument parsing and TOML settings, plus sweep settings.
+- `json_io.py`: JSON readers/writers and relative result references.
+- `sweep.py`: repeated subprocess measurements and the completed index.
+- `plot.py`: result aggregation, paired bootstrap medians, and Matplotlib.
+
+GPU workers keep `enable_duckdb_fallback = false`; unsupported GPU execution
+fails. The generated per-run Sirius YAML sets startup-only admission to N.
+This setting has no equivalent runtime `SET`/connection option, so the YAML
+must exist before loading Sirius. Other Sirius defaults, including Quent
+telemetry, remain intact. Scheduler GPU visibility is preserved.
 
 ## User-local installation
+
 
 Use one environment containing **DuckDB 2.0.0 and its matching Sirius binary**
 for both CPU and GPU measurements. All installation paths below belong to your
@@ -60,159 +188,3 @@ PY
 Successful `LOAD` checks the extension's compatibility with the actual Python
 DuckDB engine. Keep this installed binary and use this same `.venv` for both
 backends. Reactivate it in later sessions with `source .venv/bin/activate`.
-
-## Generate data and run
-
-```bash
-python benchmark.py generate-table --db data/tpch.duckdb --scale-factor 10
-python benchmark.py benchmark --db data/tpch.duckdb --connections 1 \
-  --output results/cpu-baseline.json
-python benchmark.py benchmark --db data/tpch.duckdb --connections 4 \
-  --baseline results/cpu-baseline.json --output results/cpu-n4.json
-```
-
-Generate the tables only once. DuckDB reports errors from table generation.
-
-The first generation needs network access to install DuckDB's TPC-H extension.
-DuckDB chooses its engine resource defaults. `--connections` controls client
-streams, not DuckDB's internal worker threads.
-
-Omit `--seed` to give every stream the identical Q1–Q22 order. This is the
-recommended starting point for cold-start comparisons: the isolated baseline
-and each measured stream then have the same query order. `--seed` still enables
-reproducible shuffling, but different stream permutations have different cache
-histories and would need their own isolated references for matched comparisons.
-
-## Cold-start measurements
-
-Each `benchmark` invocation performs **one measured workload**. It requests
-Linux cache eviction for the database file, opens a new database instance,
-then runs N streams. There is no preliminary query pass or warmup.
-
-First run N=1 without `--baseline` to save an isolated reference. Then start a
-separate Python process with `--baseline` to compare against that reference.
-Use the same database, backend and query order. Without `--baseline`, JSON
-contains QPS and query timings, with no `mean_slowdown` value.
-
-For the N=1 sanity check, compare a second fresh run against the first:
-
-```bash
-python benchmark.py benchmark --db data/tpch.duckdb --connections 1 \
-  --baseline results/cpu-baseline.json --output results/cpu-n1-check.json
-```
-
-Both N=1 and N>1 use worker connections and the same stream timing path. The
-baseline file is read outside timing; its queries are not executed again.
-
-Before opening DuckDB, the program calls `fsync` on the database file, then
-`POSIX_FADV_DONTNEED` over the whole file. Flushing first makes dirty pages
-eligible for eviction. This needs no root privileges and requests eviction
-only for this file, although other processes reading the same file share its
-page cache. [Linux documents this as best effort](https://man7.org/linux/man-pages/man2/posix_fadvise.2.html),
-so JSON records the reset method as **unverified**. It does not clear storage
-device/server caches or establish a guaranteed physical-disk cold start.
-Use the cluster's cache-control mechanism if strict storage-cold measurements
-are required. The implementation targets Linux.
-
-Cache-reset work and engine setup are outside timing. Cache contents naturally
-grow during Q1–Q22; the reset is at stream start, not between queries. Negative
-N=1 comparisons are still possible through variability or incomplete cache
-eviction; values are reported unchanged rather than clamped to zero. Prepared
-statements, timing boundaries and hot-cache warmups are deferred.
-
-## GPU execution
-
-Use the matched installation above on an allocated NVIDIA GPU node. Run each
-backend in a fresh process, using the same environment and database:
-
-```bash
-python benchmark.py benchmark --connections 1 --device gpu \
-  --sirius-extension "$HOME/.local/lib/sirius/duckdb-2.0.0/sirius.duckdb_extension" \
-  --output results/gpu-baseline.json
-python benchmark.py benchmark --connections 4 --device gpu \
-  --baseline results/gpu-baseline.json \
-  --sirius-extension "$HOME/.local/lib/sirius/duckdb-2.0.0/sirius.duckdb_extension" \
-  --output results/gpu-n4.json
-```
-
-The GPU path writes `results/gpu-n4.sirius.yaml` with
-`sirius.max_concurrent_queries: 4` (your N), sets `SIRIUS_CONFIG_FILE`, then
-loads the unsigned local extension. This minimal startup YAML replaces any
-inherited config selection; other Sirius settings use engine defaults.
-GPU visibility assigned by the scheduler is preserved. Use a Sirius revision
-supporting [concurrent queries](https://github.com/sirius-db/sirius/blob/main/docs/super-sirius/concurrent-queries.md).
-
-The admission limit is a startup-only YAML setting in Sirius's documented
-DuckDB interface. It must be available before `LOAD`; there is no corresponding
-runtime `SET max_concurrent_queries`. Settings exposed through SQL, such as
-`gpu_execution` and `enable_duckdb_fallback`, are applied directly through
-`connection.execute(...)`.
-
-Every timed GPU connection enables `gpu_execution` and explicitly disables
-CPU fallback with `enable_duckdb_fallback = false`. Unsupported execution fails
-the run. This matches the current source and the preserved timing experiment.
-See the upstream [execution settings](https://github.com/sirius-db/sirius/blob/main/docs/super-sirius/configuration.md).
-
-The default extension path is
-`$HOME/.local/lib/sirius/duckdb-2.0.0/sirius.duckdb_extension`, matching the
-installation above. Use `--sirius-extension` for a different location. To find
-an existing installation (including the unversioned path from earlier setup
-instructions):
-
-```bash
-find "$HOME/.local/lib" -type f -name '*sirius*.duckdb_extension*'
-```
-
-Pass the uncompressed file's actual path to `--sirius-extension`. Argument
-types and device choices are handled by argparse; other input errors are left
-to Python or DuckDB.
-
-Sirius also writes local [Quent telemetry traces](https://github.com/sirius-db/sirius/blob/main/docs/super-sirius/quent-telemetry.md),
-normally under `telemetry_data/`. These describe query plans, operators,
-threads, tasks, queues and execution timing, and can be viewed in Quent's
-timeline UI. Telemetry is enabled by Sirius's defaults; our generated YAML
-currently leaves that default intact. It is separate from our QPS/slowdown
-JSON. Disabling it requires `sirius.telemetry.enable_quent: false` in the
-generated startup YAML.
-
-## What is measured
-
-Isolated latencies `L_q` come from a separate N=1 invocation on the selected
-backend. The measured invocation releases its N streams together at one
-barrier. Each stream fully fetches one query's result before starting its next
-query. There is no synchronization between subsequent queries.
-
-- `C_s,q`: execute-and-fetch latency of query q in concurrent stream s.
-- `elapsed_s`: common barrier release to the last stream's completion;
-  connection setup and cleanup are outside this interval.
-- `qps = 22 * N / elapsed_s`.
-- `mean_slowdown = sum(C_s,q / L_q) / (22 * N) - 1`.
-  This averages each query's latency ratio equally across all streams:
-  **0** means no change, **+0.5** means 50% higher latency on average, and
-  **-0.2** means 20% lower latency on average. Each backend uses its own
-  isolated baseline; this metric measures the effect of concurrent execution.
-  This measures per-query latency changes rather than total stream duration.
-
-Older JSON files used `aggregate_slowdown`, whose no-change value was 22.
-Convert those values with `aggregate_slowdown / 22 - 1`; new runs write
-`mean_slowdown` instead. For files containing `mean_slowdown_percent`, divide
-that value by 100. Negative values are retained to show lower
-measured latencies. Baselines from the old combined-run workflow should be
-remeasured using the separate-process workflow.
-
-JSON contains these metrics, device, N, seed, process ID, cache reset method,
-baseline path, each stream's query order, and measured latencies in seconds.
-Comparison runs also include the loaded isolated latencies. Query IDs become
-string keys in JSON. The output file is written after measurement; rerunning
-with the same output path replaces it. Choose different filenames to retain
-multiple runs.
-
-There is one measured pass per invocation, with no result validation or warmup
-phase. These are initial exploratory measurements, not certified
-TPC-H results. Any query error fails the run without writing new JSON metrics;
-connection cleanup still occurs. An old output file remains if the run fails,
-so choose a fresh filename for each experiment. GPU execution needs validation
-on the actual cluster; CPU tests and mocked GPU calls do not establish that.
-
-Read `benchmark.py` from top to bottom: generation → query loading → stream
-execution → concurrency → metrics → benchmark coordination → CLI.
