@@ -295,3 +295,108 @@ has no exposed tool to force a write to the automatic memory store. These
 repository files provide immediate durable context; they are not a claim that
 automatic memory generation has already completed. No Git commands were used
 to save them.
+
+## Update: 2026-11-03 timing research
+
+The user reports that repeated cold N=1 comparisons are approximately centered
+at zero, despite individual GPU runs varying. They now prioritize a reliable
+end-to-end result and understanding execution timing before trying more cache
+scenarios. A one-pass warmup flag was planned but has not been implemented.
+
+The installed cluster Sirius binary was found at the unversioned path
+`$HOME/.local/lib/sirius/sirius.duckdb_extension`; pass it explicitly with
+`--sirius-extension`. The versioned default remains in the local benchmark.
+
+The current source has `enable_duckdb_fallback = false`, reflecting a user edit
+since the original handoff. Preserve the actual source setting. Earlier notes
+and instructions describing enabled fallback are historical and outdated.
+
+The user requested research, not implementation, on internal execution timing
+and whether prepared statements exclude planning. Findings and primary sources
+are saved in [benchmark/experiments/frontend_overhead_timing/TIMING_RESEARCH.md](benchmark/experiments/frontend_overhead_timing/TIMING_RESEARCH.md).
+An important source-level finding is that current upstream Sirius explicitly
+requests prepared GPU statement rebinding and can rebuild plans at execution.
+Do not claim that PREPARE guarantees planning-free timing on both backends.
+DuckDB profiling phases and Sirius tracing/native timing hooks have different
+boundaries; the exact installed extension revision still needs verification.
+No benchmark code or Git operations were changed for this research.
+
+## Update: timing experiment implementation
+
+The user authorized implementing the temporary profiling wrapper and supplying
+cluster commands. `benchmark/profile_timing.py` reuses `benchmark.py` with
+temporary connection/stream hooks; the core benchmark file remains unchanged.
+It preserves current backend settings, times execute and full fetch separately,
+and retrieves a raw per-query engine profile after timing and before the next
+query. Profiles are stored in per-stream memory and written after the workload.
+Diagnostic results are explicitly labeled because collection changes stream
+pacing and profiled QPS is not the primary performance result.
+
+`benchmark/summarize_timing.py` normalizes legacy and DuckDB 2.0 metric names,
+preserves unavailable phases, and prints per-query medians plus ordinary-run
+QPS ranges. It writes `timing-summary.csv` with phase medians and latency
+ranges. Raw diagnostic profiles carry stream/query IDs and execute/fetch/full
+intervals. GPU frontend coverage remains partial until verified on the cluster.
+
+Commands in [benchmark/experiments/frontend_overhead_timing/TIMING_EXPERIMENT.md](benchmark/experiments/frontend_overhead_timing/TIMING_EXPERIMENT.md)
+run CPU/GPU N=1/N=2 ordinary/profiled pairs three times in fresh processes, with
+alternating pair order and a fresh directory. The experiment retains the current
+cold-start procedure; warmups and prepared statements remain deferred.
+
+The inspected newer upstream Sirius Python runner times `execute()` and fetches
+afterward. Older cached source views timed execute-and-fetch. The upstream
+comment assumes execute fully materializes results, whereas public DuckDB 2.0
+documents a first-rows boundary. Our experiment deliberately fetches fully and
+does not assume that fetch time is purely Python conversion.
+
+## Update: 2026-11-04 timing findings and experiment preservation
+
+The user supplied the completed 24-run cluster experiment and CPU/GPU profile
+excerpts confirming DuckDB 2.0.0. Findings are documented in
+[benchmark/experiments/frontend_overhead_timing/TIMING_FINDINGS.md](benchmark/experiments/frontend_overhead_timing/TIMING_FINDINGS.md). Reported CPU
+frontend shares are usually below 5%, reaching 9.68% in a short-query case;
+reported GPU shares stay below 5%. Parser timing is absent from the supplied
+engine profiles. Complete Sirius planning coverage is unverified. The user
+accepts modest comparable GPU planning overhead as a working assumption and
+retains end-to-end execute-and-fetch timing. Prepared/native timers are deferred.
+
+The user requested reproducible profiling while allowing future benchmark
+refactoring, including splitting the active file. Unchanged copies of all
+three current Python files now live in
+[benchmark/experiments/frontend_overhead_timing](benchmark/experiments/frontend_overhead_timing/README.md).
+This includes the benchmark dependency, so the historical profiling wrapper
+does not depend on future active code. Existing top-level Python files remain
+unchanged in their original locations. Preserve the snapshot; new methodology
+belongs in a new named experiment. No active module split has been implemented.
+
+[benchmark/experiments/frontend_overhead_timing/run_timing_experiment.sh](benchmark/experiments/frontend_overhead_timing/run_timing_experiment.sh) replaces
+the long inline shell block. It runs the frozen sources with CPU/GPU, N=1/N=2,
+three ordinary/profiled pairs, and the original alternating pair order. It
+creates a unique results directory, records the Python/DuckDB engine version,
+and supports PYTHON, DB_PATH, and SIRIUS_EXTENSION path overrides. It stops on
+failure and anchors relative paths to the benchmark directory.
+
+The supplied console output is archived with the snapshot. Full original raw
+JSON/CSV remain on the cluster under `results/timing-20261103-181407/`; exact
+Sirius provenance and complete hardware metadata have not been supplied. Local
+sources have not been compared with the actual cluster files. No Git commands
+were used. Current source fallback=false remains preserved; the main README
+now reflects it instead of the outdated fallback-enabled description.
+
+Verification: the snapshot's three Python files match the active originals
+byte-for-byte, and the archived output matches the supplied attachment. The
+documented ranges and means were recomputed from all 88 printed query rows.
+Runner checks covered all 24 invocations, pair order, frozen import paths,
+space-containing path overrides, arbitrary starting directory, and immediate
+failure exit. Frozen CPU SF0.01 ordinary/profiled N=1/N=2 runs passed on local
+DuckDB 1.5.6 and produced the expected 44-row summary CSV. This is not a new
+GPU/cluster validation. The main benchmark and both original profiling Python
+files were left unchanged.
+
+At the user's request, the experiment folder was renamed to
+`benchmark/experiments/frontend_overhead_timing/`. All three `TIMING*.md`
+documents and `run_timing_experiment.sh` now live alongside its preserved
+Python sources. From `benchmark/`, run
+`bash experiments/frontend_overhead_timing/run_timing_experiment.sh`.
+The runner still anchors relative database paths and generated results to
+`benchmark/`; the experiment's Python code and measurement protocol are unchanged.

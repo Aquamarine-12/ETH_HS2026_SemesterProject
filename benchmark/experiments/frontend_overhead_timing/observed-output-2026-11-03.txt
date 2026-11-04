@@ -1,0 +1,233 @@
+Requesting database-file cache eviction (best effort)...
+Measuring 1 cpu stream(s)...
+QPS: 5.637
+Results: results/timing-20261103-181407/cpu-n1-r1-plain.json
+Diagnostic run: profile collection adds gaps between queries. Use unprofiled benchmark.py runs for throughput. DuckDB phase timings may omit Sirius-specific planning.
+Requesting database-file cache eviction (best effort)...
+Measuring 1 cpu stream(s)...
+QPS: 5.874
+Results: results/timing-20261103-181407/cpu-n1-r1-profile.json
+Diagnostic profiles: results/timing-20261103-181407/cpu-n1-r1-profile.profiles.json
+Requesting database-file cache eviction (best effort)...
+Measuring 2 cpu stream(s)...
+QPS: 11.274
+Results: results/timing-20261103-181407/cpu-n2-r1-plain.json
+Diagnostic run: profile collection adds gaps between queries. Use unprofiled benchmark.py runs for throughput. DuckDB phase timings may omit Sirius-specific planning.
+Requesting database-file cache eviction (best effort)...
+Measuring 2 cpu stream(s)...
+QPS: 11.229
+Results: results/timing-20261103-181407/cpu-n2-r1-profile.json
+Diagnostic profiles: results/timing-20261103-181407/cpu-n2-r1-profile.profiles.json
+Requesting database-file cache eviction (best effort)...
+Measuring 1 gpu stream(s)...
+QPS: 3.819
+Results: results/timing-20261103-181407/gpu-n1-r1-plain.json
+Diagnostic run: profile collection adds gaps between queries. Use unprofiled benchmark.py runs for throughput. DuckDB phase timings may omit Sirius-specific planning.
+Requesting database-file cache eviction (best effort)...
+Measuring 1 gpu stream(s)...
+QPS: 4.441
+Results: results/timing-20261103-181407/gpu-n1-r1-profile.json
+Diagnostic profiles: results/timing-20261103-181407/gpu-n1-r1-profile.profiles.json
+Requesting database-file cache eviction (best effort)...
+Measuring 2 gpu stream(s)...
+QPS: 7.382
+Results: results/timing-20261103-181407/gpu-n2-r1-plain.json
+Diagnostic run: profile collection adds gaps between queries. Use unprofiled benchmark.py runs for throughput. DuckDB phase timings may omit Sirius-specific planning.
+Requesting database-file cache eviction (best effort)...
+Measuring 2 gpu stream(s)...
+QPS: 7.327
+Results: results/timing-20261103-181407/gpu-n2-r1-profile.json
+Diagnostic profiles: results/timing-20261103-181407/gpu-n2-r1-profile.profiles.json
+Diagnostic run: profile collection adds gaps between queries. Use unprofiled benchmark.py runs for throughput. DuckDB phase timings may omit Sirius-specific planning.
+Requesting database-file cache eviction (best effort)...
+Measuring 1 cpu stream(s)...
+QPS: 5.881
+Results: results/timing-20261103-181407/cpu-n1-r2-profile.json
+Diagnostic profiles: results/timing-20261103-181407/cpu-n1-r2-profile.profiles.json
+Requesting database-file cache eviction (best effort)...
+Measuring 1 cpu stream(s)...
+QPS: 5.937
+Results: results/timing-20261103-181407/cpu-n1-r2-plain.json
+Diagnostic run: profile collection adds gaps between queries. Use unprofiled benchmark.py runs for throughput. DuckDB phase timings may omit Sirius-specific planning.
+Requesting database-file cache eviction (best effort)...
+Measuring 2 cpu stream(s)...
+QPS: 11.221
+Results: results/timing-20261103-181407/cpu-n2-r2-profile.json
+Diagnostic profiles: results/timing-20261103-181407/cpu-n2-r2-profile.profiles.json
+Requesting database-file cache eviction (best effort)...
+Measuring 2 cpu stream(s)...
+QPS: 11.317
+Results: results/timing-20261103-181407/cpu-n2-r2-plain.json
+Diagnostic run: profile collection adds gaps between queries. Use unprofiled benchmark.py runs for throughput. DuckDB phase timings may omit Sirius-specific planning.
+Requesting database-file cache eviction (best effort)...
+Measuring 1 gpu stream(s)...
+QPS: 4.494
+Results: results/timing-20261103-181407/gpu-n1-r2-profile.json
+Diagnostic profiles: results/timing-20261103-181407/gpu-n1-r2-profile.profiles.json
+Requesting database-file cache eviction (best effort)...
+Measuring 1 gpu stream(s)...
+QPS: 4.472
+Results: results/timing-20261103-181407/gpu-n1-r2-plain.json
+Diagnostic run: profile collection adds gaps between queries. Use unprofiled benchmark.py runs for throughput. DuckDB phase timings may omit Sirius-specific planning.
+Requesting database-file cache eviction (best effort)...
+Measuring 2 gpu stream(s)...
+QPS: 7.391
+Results: results/timing-20261103-181407/gpu-n2-r2-profile.json
+Diagnostic profiles: results/timing-20261103-181407/gpu-n2-r2-profile.profiles.json
+Requesting database-file cache eviction (best effort)...
+Measuring 2 gpu stream(s)...
+QPS: 7.528
+Results: results/timing-20261103-181407/gpu-n2-r2-plain.json
+Requesting database-file cache eviction (best effort)...
+Measuring 1 cpu stream(s)...
+QPS: 5.958
+Results: results/timing-20261103-181407/cpu-n1-r3-plain.json
+Diagnostic run: profile collection adds gaps between queries. Use unprofiled benchmark.py runs for throughput. DuckDB phase timings may omit Sirius-specific planning.
+Requesting database-file cache eviction (best effort)...
+Measuring 1 cpu stream(s)...
+QPS: 5.927
+Results: results/timing-20261103-181407/cpu-n1-r3-profile.json
+Diagnostic profiles: results/timing-20261103-181407/cpu-n1-r3-profile.profiles.json
+Requesting database-file cache eviction (best effort)...
+Measuring 2 cpu stream(s)...
+QPS: 11.369
+Results: results/timing-20261103-181407/cpu-n2-r3-plain.json
+Diagnostic run: profile collection adds gaps between queries. Use unprofiled benchmark.py runs for throughput. DuckDB phase timings may omit Sirius-specific planning.
+Requesting database-file cache eviction (best effort)...
+Measuring 2 cpu stream(s)...
+QPS: 10.850
+Results: results/timing-20261103-181407/cpu-n2-r3-profile.json
+Diagnostic profiles: results/timing-20261103-181407/cpu-n2-r3-profile.profiles.json
+Requesting database-file cache eviction (best effort)...
+Measuring 1 gpu stream(s)...
+QPS: 4.527
+Results: results/timing-20261103-181407/gpu-n1-r3-plain.json
+Diagnostic run: profile collection adds gaps between queries. Use unprofiled benchmark.py runs for throughput. DuckDB phase timings may omit Sirius-specific planning.
+Requesting database-file cache eviction (best effort)...
+Measuring 1 gpu stream(s)...
+QPS: 4.471
+Results: results/timing-20261103-181407/gpu-n1-r3-profile.json
+Diagnostic profiles: results/timing-20261103-181407/gpu-n1-r3-profile.profiles.json
+Requesting database-file cache eviction (best effort)...
+Measuring 2 gpu stream(s)...
+QPS: 7.356
+Results: results/timing-20261103-181407/gpu-n2-r3-plain.json
+Diagnostic run: profile collection adds gaps between queries. Use unprofiled benchmark.py runs for throughput. DuckDB phase timings may omit Sirius-specific planning.
+Requesting database-file cache eviction (best effort)...
+Measuring 2 gpu stream(s)...
+QPS: 7.383
+Results: results/timing-20261103-181407/gpu-n2-r3-profile.json
+Diagnostic profiles: results/timing-20261103-181407/gpu-n2-r3-profile.profiles.json
+
+CPU, N=1 (times in ms)
+ Q Samples    Wall   Plain    P/U  Execute   Fetch  Frontend  Share% Fields
+ 1        3  929.77  931.47   1.00   929.38    0.39      1.12    0.12 3/4
+ 2        3  111.88  113.50   0.99   110.66    1.22      1.89    1.69 3/4
+ 3        3  326.91  325.43   1.00   326.42    0.53      1.07    0.33 3/4
+ 4        3  458.91  461.40   0.99   456.61    2.43      1.09    0.24 3/4
+ 5        3  275.20  276.21   1.00   274.64    0.57      1.29    0.47 3/4
+ 6        3    8.49    8.49   1.00     8.30    0.21      0.60    7.24 3/4
+ 7        3   42.71   41.05   1.04    41.75    0.86      1.69    4.00 3/4
+ 8        3  277.87  277.15   1.00   277.20    0.67      1.70    0.61 3/4
+ 9        3  129.51  135.49   0.96   128.15    1.22      1.47    1.14 3/4
+10        3  209.60  205.12   1.02   208.85    0.70      1.34    0.65 3/4
+11        3   35.17   35.38   0.99    35.16    0.01      1.22    3.47 3/4
+12        3   31.79   31.92   1.00    31.37    0.34      1.02    3.20 3/4
+13        3  480.45  479.19   1.00   479.52    0.99      0.81    0.17 3/4
+14        3   28.16   27.75   1.01    27.80    0.35      0.98    3.47 3/4
+15        3   15.88   14.65   1.08    15.34    0.54      1.43    9.01 3/4
+16        3   51.35   48.14   1.07    39.47   11.54      1.17    2.37 3/4
+17        3   31.17   28.71   1.09    30.33    0.84      1.34    4.44 3/4
+18        3  121.02  123.62   0.98   119.94    1.07      1.25    1.05 3/4
+19        3   20.02   18.79   1.07    19.58    0.44      1.86    9.68 3/4
+20        3   34.19   31.80   1.08    32.65    1.54      1.75    5.08 3/4
+21        3   65.84   62.73   1.05    61.81    4.03      1.59    2.42 3/4
+22        3   39.60   38.06   1.04    38.08    1.38      1.59    4.30 3/4
+
+CPU, N=2 (times in ms)
+ Q Samples    Wall   Plain    P/U  Execute   Fetch  Frontend  Share% Fields
+ 1        6  933.43  927.76   1.01   933.00    0.41      1.22    0.13 3/4
+ 2        6  115.33  113.12   1.02   114.19    1.15      1.92    1.64 3/4
+ 3        6  328.57  326.81   1.01   328.11    0.54      1.03    0.31 3/4
+ 4        6  460.84  459.14   1.00   457.96    2.30      1.31    0.29 3/4
+ 5        6  280.21  279.57   1.00   279.57    0.63      1.48    0.52 3/4
+ 6        6   14.09   12.21   1.15    13.91    0.19      0.74    5.41 3/4
+ 7        6   55.33   48.56   1.14    54.54    0.85      1.75    3.40 3/4
+ 8        6  280.68  277.64   1.01   279.96    0.72      2.00    0.68 3/4
+ 9        6  171.53  172.89   0.99   170.14    1.47      1.62    1.02 3/4
+10        6  213.44  211.30   1.01   212.59    0.89      1.79    0.87 3/4
+11        6   35.88   35.56   1.01    35.86    0.02      1.56    4.36 3/4
+12        6   42.11   40.44   1.04    41.65    0.48      1.39    3.41 3/4
+13        6  484.27  482.50   1.00   482.57    1.33      1.19    0.24 3/4
+14        6   37.88   36.65   1.03    37.48    0.39      1.35    3.51 3/4
+15        6   22.81   21.73   1.05    22.14    0.60      1.90    8.87 3/4
+16        6   60.62   57.95   1.05    43.25   16.23      1.52    2.51 3/4
+17        6   40.49   37.85   1.07    39.60    0.98      1.69    3.96 3/4
+18        6  154.52  152.07   1.02   153.29    1.26      1.80    1.16 3/4
+19        6   28.21   26.68   1.06    27.63    0.58      2.13    7.81 3/4
+20        6   43.31   38.22   1.13    41.25    1.57      2.02    4.75 3/4
+21        6   87.36   82.69   1.06    82.68    4.29      1.85    2.19 3/4
+22        6   42.56   43.03   0.99    41.21    1.42      2.38    5.00 3/4
+
+GPU, N=1 (times in ms)
+ Q Samples    Wall   Plain    P/U  Execute   Fetch  Frontend  Share% Fields
+ 1        3  957.53  959.76   1.00   957.11    0.34      1.98    0.21 3/4
+ 2        3  161.14  169.16   0.95   160.74    0.40      1.74    1.07 3/4
+ 3        3  381.92  389.72   0.98   381.62    0.31      1.04    0.27 3/4
+ 4        3  546.23  555.77   0.98   546.09    0.28      1.09    0.20 3/4
+ 5        3  347.05  309.86   1.12   346.66    0.28      1.50    0.42 3/4
+ 6        3   59.27   61.93   0.96    59.16    0.11      0.74    1.25 3/4
+ 7        3   89.66   91.34   0.98    89.45    0.20      1.50    1.67 3/4
+ 8        3  302.06  310.09   0.97   301.71    0.35      1.47    0.48 3/4
+ 9        3  205.83  204.50   1.01   205.19    0.64      1.57    0.76 3/4
+10        3  308.17  302.22   1.02   307.74    0.43      1.29    0.42 3/4
+11        3   55.80   57.29   0.97    55.78    0.02      1.31    2.35 3/4
+12        3   86.28   86.51   1.00    86.00    0.35      1.10    1.28 3/4
+13        3  496.61  500.68   0.99   496.31    0.28      0.84    0.17 3/4
+14        3   56.41   54.54   1.03    56.27    0.15      1.18    2.11 3/4
+15        3   62.77   62.65   1.00    62.48    0.29      0.95    1.49 3/4
+16        3   62.17   60.71   1.02    52.27    9.63      1.10    1.77 3/4
+17        3   91.02   93.08   0.98    90.69    0.29      1.13    1.27 3/4
+18        3  241.41  241.74   1.00   240.72    0.60      1.60    0.67 3/4
+19        3  130.43  129.25   1.01   129.98    0.34      2.02    1.55 3/4
+20        3   90.28   87.74   1.03    89.66    0.62      1.41    1.56 3/4
+21        3  164.78  170.49   0.97   164.40    0.33      1.45    0.88 3/4
+22        3   39.07   41.69   0.94    38.67    0.17      1.44    3.69 3/4
+
+GPU, N=2 (times in ms)
+ Q Samples    Wall   Plain    P/U  Execute   Fetch  Frontend  Share% Fields
+ 1        6 1048.07 1036.32   1.01  1047.57    0.49      1.82    0.17 3/4
+ 2        6  174.81  171.76   1.02   174.29    0.50      1.80    1.04 3/4
+ 3        6  418.28  414.77   1.01   417.89    0.36      1.23    0.30 3/4
+ 4        6  566.69  573.68   0.99   566.31    0.28      1.03    0.18 3/4
+ 5        6  328.73  326.96   1.01   328.41    0.32      1.44    0.44 3/4
+ 6        6   95.53   96.93   0.99    95.24    0.30      0.85    0.81 3/4
+ 7        6  168.74  148.67   1.13   168.36    0.46      1.87    0.93 3/4
+ 8        6  347.02  343.08   1.01   346.55    0.41      2.18    0.64 3/4
+ 9        6  284.19  300.23   0.95   282.04    2.09      1.91    0.67 3/4
+10        6  358.57  352.35   1.02   358.06    0.53      1.62    0.45 3/4
+11        6   62.90   60.60   1.04    62.88    0.02      1.65    2.60 3/4
+12        6  159.96  142.93   1.12   159.66    0.35      1.12    0.70 3/4
+13        6  552.35  548.07   1.01   551.92    0.33      1.09    0.19 3/4
+14        6  120.23  113.32   1.06   119.91    0.25      1.56    1.37 3/4
+15        6   65.31   83.60   0.78    64.93    0.33      1.33    1.76 3/4
+16        6   80.31   81.55   0.98    64.59   16.85      1.17    1.34 3/4
+17        6  133.84  129.79   1.03   133.54    0.36      1.47    1.07 3/4
+18        6  338.75  341.03   0.99   337.90    0.78      2.02    0.59 3/4
+19        6  214.54  229.25   0.94   214.09    0.57      2.39    1.01 3/4
+20        6  118.32  125.98   0.94   117.53    0.79      1.82    1.42 3/4
+21        6  258.96  253.34   1.02   258.43    0.43      2.02    0.77 3/4
+22        6   43.10   39.48   1.09    42.70    0.35      1.69    4.04 3/4
+
+Unprofiled QPS: median [min, max]
+cpu, N=1: 5.937 [5.637, 5.958]
+cpu, N=2: 11.317 [11.274, 11.369]
+gpu, N=1: 4.472 [3.819, 4.527]
+gpu, N=2: 7.382 [7.356, 7.528]
+
+Frontend = recorded DuckDB phases, not all Sirius planning.
+P/U = profiled/plain latency ratio, including pacing changes.
+Fetch includes conversion and possibly unfinished execution.
+Profile retrieval changes stream pacing; use plain runs for QPS.
+Full phase medians and latency ranges (seconds): results/timing-20261103-181407/timing-summary.csv
+Results: results/timing-20261103-181407

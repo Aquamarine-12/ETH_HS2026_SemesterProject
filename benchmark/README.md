@@ -4,6 +4,11 @@ One Python file, two commands. N connections share one DuckDB instance; each
 executes the 22 TPC-H queries, one at a time. Choose CPU execution (default) or
 GPU execution through a locally installed Sirius extension.
 
+The [timing findings](experiments/frontend_overhead_timing/TIMING_FINDINGS.md) summarize the measured planning
+overhead and why complete execute-and-fetch timing is retained. Reproduce the
+[timing experiment](experiments/frontend_overhead_timing/TIMING_EXPERIMENT.md) with `bash experiments/frontend_overhead_timing/run_timing_experiment.sh`.
+It uses a preserved source snapshot, independent of future benchmark changes.
+
 ## User-local installation
 
 Use one environment containing **DuckDB 2.0.0 and its matching Sirius binary**
@@ -143,9 +148,10 @@ runtime `SET max_concurrent_queries`. Settings exposed through SQL, such as
 `gpu_execution` and `enable_duckdb_fallback`, are applied directly through
 `connection.execute(...)`.
 
-Every timed GPU connection enables `gpu_execution` and CPU fallback through
-`enable_duckdb_fallback`. GPU runs can therefore include CPU execution when
-Sirius falls back. See the upstream [execution settings](https://github.com/sirius-db/sirius/blob/main/docs/super-sirius/configuration.md).
+Every timed GPU connection enables `gpu_execution` and explicitly disables
+CPU fallback with `enable_duckdb_fallback = false`. Unsupported execution fails
+the run. This matches the current source and the preserved timing experiment.
+See the upstream [execution settings](https://github.com/sirius-db/sirius/blob/main/docs/super-sirius/configuration.md).
 
 The default extension path is
 `$HOME/.local/lib/sirius/duckdb-2.0.0/sirius.duckdb_extension`, matching the
