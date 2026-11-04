@@ -14,14 +14,14 @@ write result JSON. Each file describes one measured workload with N streams.
 | `cpu_fallback` | False, matching current execution settings |
 | `process_id` | PID of this fresh measurement process |
 | `connections` | Number of concurrent streams, N |
-| `seed` | Shuffle seed, or null for identical Q1–Q22 streams |
+| `seed` | Integer shuffle seed, `ASC` (default), `DESC`, or `ASC-DESC` |
 | `role` | `baseline` for an unreferenced N=1 run; otherwise `measurement` |
 | `baseline_json` | Reference path relative to this JSON file, or null |
 | `baseline_latencies_s` | Loaded reference query latencies, or null |
 | `total_queries` | Measured queries only: 22N |
 | `elapsed_s` | Measurement barrier release to final stream completion |
 | `qps` | Measured queries divided by elapsed time |
-| `mean_slowdown` | Present only when a baseline was supplied |
+| `mean_slowdown` | Mean latency factor, present only with a baseline |
 | `streams` | Each worker's measured query order and query latencies |
 
 Every `streams` entry contains `stream_id` (zero-based), `query_order` (all 22
@@ -33,8 +33,7 @@ The old `baseline` and `isolated_latencies_s` fields are now named
 `baseline_json` and `baseline_latencies_s`. The old `cache_reset` description
 is removed; cache-reset limitations are documented in the README. The plotter
 expects the new metadata/field names; the frozen timing experiment retains
-its historical format. Old result files can still supply reference timings
-because the baseline reader reads their first stream's query latencies.
+its historical format.
 
 ## Slowdown
 
@@ -42,14 +41,17 @@ For stream s and query q, let C(s,q) be measured execute-and-fetch latency,
 and L(q) the corresponding latency in the separate N=1 baseline:
 
 ```text
-mean_slowdown = sum(C(s,q) / L(q) for s,q) / (22 * N) - 1
+mean_slowdown = sum(C(s,q) / L(q) for s,q) / (22 * N)
 qps = 22 * N / elapsed_s
 ```
 
-Zero means unchanged latency on average, +0.2 means 20% higher, and -0.2
+One means unchanged latency on average, 1.2 means 20% higher, and 0.8
 means 20% lower. Query ratios receive equal weight, irrespective of their
 absolute runtimes. This is not a ratio of summed stream runtimes. Each backend
 uses its own reference; this metric is not CPU-versus-GPU speedup.
+
+The plotter expects this factor convention in `mean_slowdown`. It does not
+convert results produced with the earlier zero-centered formula.
 
 N=1 baseline records have no slowdown. Explicitly comparing another N=1
 invocation against a baseline is still supported, but sweeps do not repeat
@@ -86,8 +88,8 @@ sweep-20261104-143000-123456/
 `index.json` contains `settings_json` and a `runs` list. Each entry records
 sample, backend, connections, role, `result_json`, `baseline_json`, and
 `included`. References here are relative to the index. `included` determines
-whether N=1 was requested as a plotted point; its reference result exists even
-if only N>1 values were requested. References inside each result are relative
+whether N=1 was requested for per-query latency plots. The QPS plot always
+includes its reference result, even if only N>1 values were requested. References inside each result are relative
 to that result instead (typically just `baseline.json`).
 
 All measurements run sequentially using `sys.executable`. One reference is
@@ -109,14 +111,17 @@ The plotter calculates medians and percentile-bootstrap 95% confidence
 intervals using 10,000 resamples and random seed 0. Sample rows are resampled
 as complete blocks, preserving parameter columns and their existing baseline
 associations. The same procedure applies across query columns. A lone sample
-is drawn as a point/curve without a confidence bar.
+is drawn without a confidence bar. Per-query figures have one backend per
+panel; connection-count points are offset horizontally within each query
+group, without connecting lines. Overall QPS/slowdown figures retain curves.
 
 Slowdown plots require the referenced file and saved baseline latencies to
 agree, with matching backend, database, sample, seed, engine version,
 and fallback settings. Missing required data, incomplete sample blocks, or
 missing files raise an error. Values are never filled with zero, and broken
 comparisons are never silently omitted. Baseline-role entries are explicitly
-excluded from slowdown curves, while remaining eligible for QPS/latency.
+excluded from slowdown plots. All slowdown plots show only N>=2, with a
+reference line at factor 1. QPS plots always include N=1 references.
 
 ## Current scope
 

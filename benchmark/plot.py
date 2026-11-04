@@ -16,9 +16,10 @@ from typing import TypeAlias
 
 import matplotlib.pyplot as plt
 import numpy as np
-from json_io import JsonObject, load_baseline, read_json
 from matplotlib.axes import Axes
 from numpy.typing import NDArray
+
+from json_io import JsonObject, load_baseline, read_json
 
 plt.switch_backend("Agg")
 
@@ -26,9 +27,9 @@ FloatArray: TypeAlias = NDArray[np.float64]
 METRICS = ("qps", "slowdown", "latency", "query-slowdown")
 Y_LABELS = {
     "qps": "Queries per second",
-    "slowdown": "Mean relative slowdown",
+    "slowdown": "Mean slowdown factor",
     "latency": "Query latency (s)",
-    "query-slowdown": "Mean relative query slowdown",
+    "query-slowdown": "Mean query slowdown factor",
 }
 
 
@@ -39,6 +40,7 @@ class PlotRun:
     path: Path
     data: JsonObject
     baseline: dict[int, float] | None = None
+    included: bool = True
 
 
 def load_runs(source: Path) -> list[PlotRun]:
@@ -51,9 +53,31 @@ def load_runs(source: Path) -> list[PlotRun]:
         # References exist even when N=1 was not a requested plot point.
         path = source.parent / entry["result_json"]
         data = read_json(path)
-        if entry["included"]:
-            runs.append(PlotRun(path, data))
+        runs.append(PlotRun(path, data, included=entry["included"]))
     return runs
+
+
+def select_runs(runs: list[PlotRun], metric: str) -> list[PlotRun]:
+    """Includes N=1 references for QPS and N>=2 comparisons for slowdown."""
+    if metric == "qps":
+        return [
+            run
+            for run in runs
+            if run.included
+            or (
+                run.data["role"] == "baseline"
+                and run.data["connections"] == 1
+            )
+        ]
+    if metric in ("slowdown", "query-slowdown"):
+        return [
+            run
+            for run in runs
+            if run.included
+            and run.data["connections"] >= 2
+            and run.data["role"] != "baseline"
+        ]
+    return [run for run in runs if run.included]
 
 
 def attach_baseline(run: PlotRun) -> None:
@@ -96,7 +120,7 @@ def query_values(run: PlotRun, slowdown: bool) -> dict[int, float]:
             if slowdown:
                 if run.baseline is None:
                     raise ValueError(f"Missing baseline for {run.path}")
-                value = latency / run.baseline[query_id] - 1
+                value = latency / run.baseline[query_id]
             grouped[query_id].append(value)
     return {query: float(np.mean(values)) for query, values in grouped.items()}
 
@@ -164,51 +188,97 @@ def make_series(
 
 
 def draw_series(
-    axes: Axes, label: str, columns: list[int], values: FloatArray
+    axes: Axes,
+    label: str,
+    positions: FloatArray,
+    values: FloatArray,
+    connected: bool = True,
 ) -> None:
-    """Draws a median curve and confidence bars from complete samples."""
+    """Draws sample medians and confidence bars, optionally joining points."""
     medians, low, high = bootstrap_median(values)
-    (line,) = axes.plot(columns, medians, "o-", label=label)
+    (line,) = axes.plot(
+        positions, medians, marker="o", markersize=4,
+        linestyle="-" if connected else "none", label=label,
+    )
     if low is not None and high is not None:
         # Draw interval endpoints directly; do not clip or alter the interval.
         color = line.get_color()
-        axes.vlines(columns, low, high, color=color)
-        axes.plot(columns, low, "_", color=color)
-        axes.plot(columns, high, "_", color=color)
+        axes.vlines(positions, low, high, color=color)
+        axes.plot(positions, low, "_", color=color)
+        axes.plot(positions, high, "_", color=color)
+
+
+def draw_query_panel(axes: Axes, runs: list[PlotRun], metric: str) -> None:
+    """Places connection-count medians side by side within each query group."""
+    counts = sorted({run.data["connections"] for run in runs})
+    queries = sorted({
+        query
+        for run in runs
+        for query in run.data["streams"][0]["query_order"]
+    })
+    centers = {query: index for index, query in enumerate(queries)}
+    spacing = 0.8 / len(counts)
+    for index, count in enumerate(counts):
+        subset = [run for run in runs if run.data["connections"] == count]
+        ((_, (columns, values)),) = make_series(subset, metric).items()
+        offset = (index - (len(counts) - 1) / 2) * spacing
+        positions = np.array([centers[query] + offset for query in columns])
+        draw_series(axes, f"N={count}", positions, values, connected=False)
+    axes.set_xticks(range(len(queries)), [f"Q{query}" for query in queries])
+    axes.set_xlim(-0.6, len(queries) - 0.4)
+    axes.set_ylabel(Y_LABELS[metric])
+    axes.grid(axis="y", alpha=0.2)
+    axes.legend(ncols=min(5, len(counts)), fontsize=9)
+    if metric == "query-slowdown":
+        axes.axhline(1, color="grey", linestyle="--", linewidth=1)
+
+
+def query_figure(runs: list[PlotRun], metric: str) -> plt.Figure:
+    """Separates backends into panels with grouped query medians and CIs."""
+    groups: dict[str, list[PlotRun]] = defaultdict(list)
+    for run in runs:
+        groups[group_label(run, per_query=False)].append(run)
+    figure, axes = plt.subplots(
+        len(groups), 1, figsize=(16, 4 * len(groups)),
+        sharex=True, squeeze=False, layout="constrained",
+    )
+    for (label, subset), panel in zip(groups.items(), axes[:, 0]):
+        draw_query_panel(panel, subset, metric)
+        panel.set_title(label)
+    axes[-1, 0].set_xlabel("TPC-H query")
+    figure.suptitle("Median across samples; bars: 95% bootstrap CI")
+    return figure
+
+
+def connection_figure(runs: list[PlotRun], metric: str) -> plt.Figure:
+    """Plots throughput or slowdown against connection count."""
+    figure, axes = plt.subplots(figsize=(9, 5), layout="constrained")
+    for label, (columns, values) in make_series(runs, metric).items():
+        draw_series(axes, label, np.array(columns, dtype=float), values)
+    axes.set_xlabel("Connections")
+    axes.set_ylabel(Y_LABELS[metric])
+    axes.set_title("Median across samples; bars: 95% bootstrap CI")
+    if metric == "slowdown":
+        axes.axhline(1, color="grey", linestyle="--", linewidth=1)
+    axes.set_xticks(sorted({run.data["connections"] for run in runs}))
+    axes.grid(alpha=0.2)
+    axes.legend()
+    return figure
 
 
 def render_metric(runs: list[PlotRun], metric: str, output: Path) -> None:
     """Renders one metric into shareable PNG and PDF files."""
+    runs = select_runs(runs, metric)
     if metric in ("slowdown", "query-slowdown"):
-        # Baseline-role records supply QPS/latency but no artificial slowdown.
-        runs = [run for run in runs if run.data["role"] != "baseline"]
         if not runs:
             raise ValueError("No comparison runs available for slowdown")
         for run in runs:
             attach_baseline(run)
-    figure, axes = plt.subplots(figsize=(9, 5), layout="constrained")
-    for label, (columns, values) in make_series(runs, metric).items():
-        draw_series(axes, label, columns, values)
     per_query = metric in ("latency", "query-slowdown")
-    axes.set_xlabel("TPC-H query" if per_query else "Connections")
-    axes.set_ylabel(Y_LABELS[metric])
-    axes.set_title("Median across samples; bars: 95% bootstrap CI")
-    if metric in ("slowdown", "query-slowdown"):
-        axes.axhline(0, color="grey", linestyle="--", linewidth=1)
-    ticks = (
-        sorted(
-            {
-                query
-                for run in runs
-                for query in run.data["streams"][0]["query_order"]
-            }
-        )
-        if per_query
-        else sorted({run.data["connections"] for run in runs})
+    figure = (
+        query_figure(runs, metric) if per_query
+        else connection_figure(runs, metric)
     )
-    axes.set_xticks(ticks)
-    axes.grid(alpha=0.2)
-    axes.legend()
     output.mkdir(parents=True, exist_ok=True)
     for suffix in ("png", "pdf"):
         figure.savefig(output / f"{metric}.{suffix}", dpi=180)
@@ -234,7 +304,7 @@ def main() -> None:
     output = args.output or source.parent / "plots"
     # Check all references before creating a partial set of figures.
     if any(metric in ("slowdown", "query-slowdown") for metric in args.metrics):
-        comparisons = [run for run in runs if run.data["role"] != "baseline"]
+        comparisons = select_runs(runs, "slowdown")
         if not comparisons:
             raise ValueError("No comparison runs available for slowdown")
         for run in comparisons:

@@ -18,7 +18,7 @@ from core import RunSettings
 from json_io import (
     JsonObject,
     create_result_directory,
-    relative_path,
+    index_entry,
     write_json,
 )
 
@@ -41,27 +41,12 @@ def run_child(settings: RunSettings) -> None:
         str(settings.output),
         "--sirius-extension",
         str(settings.sirius_extension),
+        "--seed",
+        str(settings.seed),
     ]
-    if settings.seed is not None:
-        command.extend(["--seed", str(settings.seed)])
     if settings.baseline_json is not None:
         command.extend(["--baseline-json", str(settings.baseline_json)])
     subprocess.run(command, check=True)
-
-
-def index_entry(
-    settings: RunSettings, root: Path, included: bool = True
-) -> JsonObject:
-    """Records a run and its baseline association relative to the index."""
-    return {
-        "sample": settings.sample,
-        "device": settings.device,
-        "connections": settings.connections,
-        "role": "baseline" if settings.baseline_json is None else "measurement",
-        "included": included,
-        "result_json": relative_path(settings.output, root),
-        "baseline_json": relative_path(settings.baseline_json, root),
-    }
 
 
 def run_sample(
@@ -76,9 +61,12 @@ def run_sample(
         output=directory / "baseline.json",
     )
     run_child(baseline)
-    entries = [index_entry(baseline, root, included=1 in connections)]
+    entries = []
+    if 1 not in connections:
+        entries.append(index_entry(baseline, root, included=False))
     for count in connections:
         if count == 1:
+            entries.append(index_entry(baseline, root))
             continue
         measured = replace(
             settings,

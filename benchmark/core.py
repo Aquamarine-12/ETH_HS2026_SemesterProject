@@ -36,6 +36,17 @@ class Device(StrEnum):
     GPU = "gpu"
 
 
+class StreamOrder(StrEnum):
+    """Names deterministic query stream orders."""
+
+    ASC = "ASC"
+    DESC = "DESC"
+    ASC_DESC = "ASC-DESC"
+
+
+StreamSeed: TypeAlias = int | StreamOrder
+
+
 @dataclass
 class RunSettings:
     """Contains the settings for one measured workload."""
@@ -43,7 +54,7 @@ class RunSettings:
     db: Path = Path("data/tpch.duckdb")
     device: Device = Device.CPU
     connections: int = 1
-    seed: int | None = None
+    seed: StreamSeed = StreamOrder.ASC
     sirius_extension: Path = DEFAULT_SIRIUS_EXTENSION
     baseline_json: Path | None = None
     output: Path | None = None
@@ -98,11 +109,18 @@ def load_queries(connection: duckdb.DuckDBPyConnection) -> Queries:
 
 
 def make_streams(
-    query_ids: QueryOrder, count: int, seed: int | None
+    query_ids: QueryOrder, count: int, seed: StreamSeed
 ) -> list[QueryOrder]:
-    """Copies the input order or reproducibly shuffles each stream."""
-    if seed is None:
+    """Builds ascending, descending, alternating, or seeded query streams."""
+    if seed == StreamOrder.ASC:
         return [query_ids.copy() for _ in range(count)]
+    if seed == StreamOrder.DESC:
+        return [list(reversed(query_ids)) for _ in range(count)]
+    if seed == StreamOrder.ASC_DESC:
+        return [
+            query_ids.copy() if index % 2 == 0 else list(reversed(query_ids))
+            for index in range(count)
+        ]
     rng = random.Random(seed)
     return [rng.sample(query_ids, len(query_ids)) for _ in range(count)]
 
@@ -176,6 +194,7 @@ def run_concurrent(
         started_at = time.perf_counter()
 
     barrier = threading.Barrier(len(orders), action=mark_start)
+    # Register cleanup for a dynamic number of worker connections.
     with ExitStack() as stack:
         connections = [stack.enter_context(root.cursor()) for _ in orders]
         for connection in connections:
@@ -199,7 +218,7 @@ def run_concurrent(
 def mean_slowdown(
     baseline: QueryLatencies | None, streams: list[StreamResult]
 ) -> float | None:
-    """Averages query latency ratios across queries and streams around zero."""
+    """Averages query latency ratios, with one meaning unchanged latency."""
     if baseline is None:
         return None
     ratios = [
@@ -207,7 +226,7 @@ def mean_slowdown(
         for stream in streams
         for query_id, latency in stream.latencies.items()
     ]
-    return sum(ratios) / len(ratios) - 1
+    return sum(ratios) / len(ratios)
 
 
 def initialize_database(
@@ -223,32 +242,41 @@ def initialize_database(
     return load_queries(root), root.execute("PRAGMA version").fetchone()[0]
 
 
-def benchmark(
-    settings: RunSettings,
-    baseline: QueryLatencies | None,
-    sirius_config: Path,
-) -> BenchmarkResult:
-    """Measures one workload and returns results without serializing them."""
-    print(
-        "Requesting database-file cache eviction (best effort)...", flush=True
-    )
-    reset_database_cache(settings.db)
+def connect_database(settings: RunSettings) -> duckdb.DuckDBPyConnection:
+    """Opens a read-only database, allowing a local unsigned GPU extension."""
     options = (
         {"allow_unsigned_extensions": "true"}
         if settings.device == Device.GPU
         else {}
     )
-    with duckdb.connect(
-        str(settings.db), read_only=True, config=options
-    ) as root:
+    return duckdb.connect(str(settings.db), read_only=True, config=options)
+
+
+def benchmark(
+    settings: RunSettings,
+    baseline: QueryLatencies | None,
+    sirius_config: Path,
+) -> BenchmarkResult:
+    """Measures one complete workload on a fresh database instance.
+
+    Eviction and setup precede timing; query timers include full result fetch.
+
+    Args:
+        settings: Backend, database, stream order, and connection count.
+        baseline: Per-query seconds from a separate N=1 run, or None.
+        sirius_config: Destination for the GPU runtime's startup YAML.
+
+    Returns:
+        Stream latencies, elapsed time, QPS, and optional mean slowdown.
+    """
+    print("Requesting database-file cache eviction...", flush=True)
+    reset_database_cache(settings.db)
+    with connect_database(settings) as root:
         queries, version = initialize_database(root, settings, sirius_config)
         orders = make_streams(
             list(queries), settings.connections, settings.seed
         )
-        print(
-            f"Measuring {settings.connections} {settings.device} stream(s)...",
-            flush=True,
-        )
+        print(f"Running {len(orders)} {settings.device} streams...", flush=True)
         streams, elapsed = run_concurrent(root, queries, orders, settings)
     count = sum(len(stream.latencies) for stream in streams)
     return BenchmarkResult(

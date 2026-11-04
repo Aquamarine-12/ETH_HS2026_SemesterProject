@@ -13,14 +13,16 @@ from json_io import (
 )
 
 
-def report_result(result: BenchmarkResult, output: Path, name: str) -> None:
+def report_result(
+    result: BenchmarkResult, output_path: Path, name: str
+) -> None:
     """Writes the typed result and reports the measured metrics."""
-    save_result(output, result)
-    save_settings(output.parent / name, result.settings)
+    save_result(output_path, result)
+    save_settings(output_path.parent / name, result.settings)
     print(f"QPS: {result.qps:.3f}")
     if result.mean_slowdown is not None:
         print(f"Mean slowdown: {result.mean_slowdown:+.3f}")
-    print(f"Results: {output}")
+    print(f"Results: {output_path}")
 
 
 def main() -> None:
@@ -30,12 +32,16 @@ def main() -> None:
     if args.command == "generate-table":
         generate_tables(settings.db, args.scale_factor)
         return
-    output = settings.output
-    name = "settings.json" if output is None else f"{output.stem}.settings.json"
-    if output is None:
+    output_path = settings.output
+    name = (
+        "settings.json"
+        if output_path is None
+        else f"{output_path.stem}.settings.json"
+    )
+    if output_path is None:
         directory = create_result_directory(settings.results_dir, "run")
-        output = directory / "result.json"
-    settings = replace(settings, output=output)
+        output_path = directory / "result.json"
+    settings = replace(settings, output=output_path)
     if settings.connections == 1 and settings.baseline_json is None:
         print(
             "Warning: N=1 is used as the baseline; no independent N=1 "
@@ -47,8 +53,10 @@ def main() -> None:
         if settings.baseline_json is not None
         else None
     )
-    result = benchmark(settings, baseline, output.with_suffix(".sirius.yaml"))
-    report_result(result, output, name)
+    result = benchmark(
+        settings, baseline, output_path.with_suffix(".sirius.yaml")
+    )
+    report_result(result, output_path, name)
 
 
 if __name__ == "__main__":

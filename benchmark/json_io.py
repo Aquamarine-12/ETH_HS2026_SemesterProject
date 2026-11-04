@@ -57,6 +57,21 @@ def relative_path(path: Path | None, directory: Path) -> str | None:
     return os.path.relpath(path.resolve(), directory.resolve())
 
 
+def index_entry(
+    settings: RunSettings, root: Path, included: bool = True
+) -> JsonObject:
+    """Records a run and its baseline association relative to the index."""
+    return {
+        "sample": settings.sample,
+        "device": settings.device,
+        "connections": settings.connections,
+        "role": "baseline" if settings.baseline_json is None else "measurement",
+        "included": included,
+        "result_json": relative_path(settings.output, root),
+        "baseline_json": relative_path(settings.baseline_json, root),
+    }
+
+
 def load_baseline(path: Path) -> QueryLatencies:
     """Reads per-query latencies from a separate single-stream reference."""
     result = read_json(path)

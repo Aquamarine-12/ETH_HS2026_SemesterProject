@@ -7,24 +7,25 @@ with `sweep.py`, then generate Matplotlib figures with `plot.py`.
 ## Quick start
 
 Run these commands from this directory, inside your Python environment.
-`experiment.toml` contains the cluster's SF10 database and unversioned Sirius
-path. Edit it for your installation; all TOML paths are relative to that file.
+`experiment-sf10.toml` selects the cluster's SF10 database and both backends,
+with five samples and connection counts 2 through 10. Its single-run default
+is CPU execution, and it includes the installed Sirius extension path. Edit it for your installation; all TOML paths are relative to that file.
 
 ```bash
 # Only if you have not generated this database already.
-python benchmark.py generate-table --config experiment.toml --scale-factor 10
+python benchmark.py generate-table --config experiment-sf10.toml --scale-factor 10
 
 # One isolated reference, followed by one two-connection comparison.
-python benchmark.py benchmark --config experiment.toml --connections 1 \
-  --output results/gpu-baseline.json
-python benchmark.py benchmark --config experiment.toml \
-  --baseline-json results/gpu-baseline.json
+python benchmark.py benchmark --config experiment-sf10.toml --connections 1 \
+  --output results/cpu-baseline.json
+python benchmark.py benchmark --config experiment-sf10.toml \
+  --baseline-json results/cpu-baseline.json
 
-# Ten samples by default, each with its own baseline and N=2/4/8 comparisons.
-python sweep.py --config experiment.toml
+# Five samples per backend, each with its own baseline and N=2 through N=10.
+python sweep.py --config experiment-sf10.toml
 
 # Or a short trial: three samples, N=1 and N=2 only.
-python sweep.py --config experiment.toml --samples 3 --connections 1 2
+python sweep.py --config experiment-sf10.toml --samples 3 --connections 1 2
 
 # Use the index path printed by sweep.py.
 python -m pip install -r requirements-plot.txt
@@ -53,24 +54,30 @@ connections = 2
 sirius_extension = "~/.local/lib/sirius/sirius.duckdb_extension"
 results_dir = "results"
 # seed = 42
-# baseline_json = "results/gpu-baseline.json"
+# baseline_json = "results/cpu-baseline.json"
 
 [sweep]
-connections = [1, 2, 4, 8]
-samples = 10
-# Defaults to [run].device if omitted.
-# devices = ["cpu", "gpu"]
+connections = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+samples = 5
+devices = ["cpu", "gpu"]
 ```
 
-Omit `seed` for identical Q1–Q22 order in every stream. Explicit seeds enable
-reproducible shuffling, but different query orders have different cache
-histories. DuckDB chooses its internal resource defaults; connections count
+The default `seed = "ASC"` gives identical Q1–Q22 order in every stream.
+An integer enables
+reproducible shuffling. Use `seed = "DESC"` for Q22–Q1 in all streams, or
+`seed = "ASC-DESC"` to alternate ascending and descending streams, starting
+with ascending. The same values work with `--seed`. Different query orders
+have different cache histories. DuckDB chooses its internal resource defaults; connections count
 client streams, not engine worker threads.
+
+Supply connection counts through `[sweep].connections` or the sweep CLI
+`--connections` option; there is no built-in sweep connection list. Table
+generation requires an explicit `--scale-factor`.
 
 The sweep runs sequentially, with a fresh Python process per measurement.
 Every sample/backend combination gets one N=1 baseline, followed by
 its requested N>1 runs. Requested N=1 points reuse that baseline; they do not
-trigger a second run or receive an artificial zero slowdown. The main entry
+trigger a second run or receive an artificial slowdown value. The main entry
 point prints a warning explaining this. Sweep references are always generated
 automatically, regardless of a single-run baseline configured in TOML.
 
@@ -89,7 +96,8 @@ the eviction request happens before the workload, not between queries.
 Each query timer includes `execute(sql).fetchall()`. Overall elapsed time is
 measurement-barrier release to the last stream's completion. Setup, cache
 reset, output writing, and connection cleanup are excluded. QPS counts
-only the measured 22N queries. Values below zero remain visible in slowdown.
+only the measured 22N queries. Slowdown is a latency factor: 1 means unchanged,
+1.2 means 20% higher latency, and 0.8 means 20% lower latency.
 
 The [timing findings](experiments/frontend_overhead_timing/TIMING_FINDINGS.md)
 explain the retained end-to-end timing method. The preserved profiling
@@ -105,11 +113,16 @@ Copy the whole sweep directory to plot it on another machine; plotting needs
 NumPy and Matplotlib, but no DuckDB, Sirius, or GPU.
 
 The plotter produces PNG and PDF figures for QPS versus N, mean slowdown
-versus N, and per-query latency/slowdown. Curves show medians across repeated
-samples with 95% bootstrap confidence bars. Streams are first summarized
+versus N, and per-query latency/slowdown. Connection-count plots use median
+curves with 95% bootstrap confidence bars. Per-query figures use separate
+backend panels and unconnected median points, with connection counts placed
+side by side within each query group. Their confidence bars use the same
+bootstrap method. Streams are first summarized
 within each run; bootstrap resampling preserves sample blocks and references.
 
-Baseline-role records appear in QPS/latency plots, not slowdown plots.
+QPS plots always include the N=1 baseline, even if the sweep starts at N=2.
+Slowdown plots show only N>=2, with a reference line at factor 1. Per-query
+latency plots retain the connection counts requested by the sweep.
 Required missing baseline files or data cause an error, with no substituted
 values or dropped measurements. To plot baseline-only results, request:
 
