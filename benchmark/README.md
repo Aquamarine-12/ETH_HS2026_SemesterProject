@@ -134,6 +134,39 @@ A single result JSON is also accepted; it supplies a single measured sample.
 Use `--output path/to/figures` to choose the figure directory.
 See [RESULTS.md](RESULTS.md) for the JSON fields, formula, and output layout.
 
+### Select queries and connection counts
+
+Limit the per-query figures to a smaller subset:
+
+```bash
+python plot.py path/to/index.json --queries 1 3 6 11 18 \
+  --query-connections 2 5 10 --output path/to/plots-selected
+```
+
+Or add an optional section to your experiment TOML (a separate plotting TOML
+also works):
+
+```toml
+[plot]
+queries = [1, 3, 6, 11, 18]
+connections = [2, 5, 10]
+```
+
+```bash
+python plot.py path/to/index.json --config experiment-sf10.toml
+```
+
+Explicit CLI selections override the corresponding TOML values. Omit either
+selection to keep that dimension unfiltered. Queries are displayed in numeric
+order. These settings affect only `latency` and `query-slowdown`: QPS keeps
+its full connection range including N=1, and overall slowdown keeps all N>=2.
+Slowdown selections must also use N>=2. For latency, explicitly selecting N=1
+can use its reference result even when the sweep did not request N=1.
+
+Unavailable query IDs or connection counts raise an error before any figures
+are written. Each backend must contain the requested counts. Filtering changes
+only what is displayed; the measurement files and overall metrics are unchanged.
+
 ## Code map
 
 - `benchmark.py`: entry point, progress/reporting, and writing successful runs.

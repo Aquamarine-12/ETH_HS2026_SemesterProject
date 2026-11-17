@@ -9,6 +9,7 @@ Figures are written as PNG and PDF without needing DuckDB or a GPU.
 from __future__ import annotations
 
 import argparse
+import tomllib
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +42,28 @@ class PlotRun:
     data: JsonObject
     baseline: dict[int, float] | None = None
     included: bool = True
+
+
+@dataclass
+class PlotSettings:
+    """Selects queries and connection counts for per-query figures only."""
+
+    queries: list[int] | None = None
+    connections: list[int] | None = None
+
+
+def load_plot_settings(args: argparse.Namespace) -> PlotSettings:
+    """Loads optional TOML selections, then applies explicit CLI overrides."""
+    values = {}
+    if args.config is not None:
+        document = tomllib.loads(
+            args.config.expanduser().read_text(encoding="utf-8")
+        )
+        values.update(document.get("plot", {}))
+    for name in ("queries", "connections"):
+        if hasattr(args, name):
+            values[name] = getattr(args, name)
+    return PlotSettings(**values)
 
 
 def load_runs(source: Path) -> list[PlotRun]:
@@ -110,12 +133,70 @@ def attach_baseline(run: PlotRun) -> None:
             run.baseline[query]
 
 
-def query_values(run: PlotRun, slowdown: bool) -> dict[int, float]:
+def filter_query_runs(
+    runs: list[PlotRun], settings: PlotSettings, metric: str
+) -> list[PlotRun]:
+    """Selects per-query runs and rejects unavailable counts or query data."""
+    if settings.connections is not None:
+        groups: dict[str, set[int]] = defaultdict(set)
+        for run in runs:
+            groups[group_label(run, False)].add(run.data["connections"])
+        for label, counts in groups.items():
+            missing = set(settings.connections) - counts
+            if missing:
+                raise ValueError(
+                    f"{metric}: unavailable connections {sorted(missing)} "
+                    f"for {label}"
+                )
+        runs = [
+            run for run in runs
+            if run.data["connections"] in settings.connections
+        ]
+    if settings.queries is not None:
+        for run in runs:
+            for stream in run.data["streams"]:
+                available = {int(q) for q in stream["query_latencies_s"]}
+                missing = set(settings.queries) - available
+                if missing:
+                    raise ValueError(
+                        f"{metric}: unavailable queries {sorted(missing)} "
+                        f"in {run.path}, stream {stream['stream_id']}"
+                    )
+    return runs
+
+
+def prepare_runs(
+    runs: list[PlotRun], metric: str, settings: PlotSettings
+) -> list[PlotRun]:
+    """Selects and checks all data needed by a figure before rendering it."""
+    selected = select_runs(runs, metric)
+    if metric == "latency" and settings.connections is not None:
+        # Explicitly selecting N=1 may use its otherwise unplotted reference.
+        selected = [
+            run for run in runs
+            if run.included or run.data["role"] == "baseline"
+        ]
+    if metric in ("latency", "query-slowdown"):
+        selected = filter_query_runs(selected, settings, metric)
+    if not selected:
+        raise ValueError(f"No runs available for {metric}")
+    if metric in ("slowdown", "query-slowdown"):
+        for run in selected:
+            if run.baseline is None:
+                attach_baseline(run)
+    return selected
+
+
+def query_values(
+    run: PlotRun, slowdown: bool, queries: list[int] | None = None
+) -> dict[int, float]:
     """Summarizes streams within a run before treating it as one sample."""
     grouped: dict[int, list[float]] = defaultdict(list)
     for stream in run.data["streams"]:
         for query, latency in stream["query_latencies_s"].items():
             query_id = int(query)
+            if queries is not None and query_id not in queries:
+                continue
             value = latency
             if slowdown:
                 if run.baseline is None:
@@ -150,7 +231,7 @@ def group_label(run: PlotRun, per_query: bool) -> str:
 
 
 def make_series(
-    runs: list[PlotRun], metric: str
+    runs: list[PlotRun], metric: str, queries: list[int] | None = None
 ) -> dict[str, tuple[list[int], FloatArray]]:
     """Builds sample-by-parameter matrices for paired resampling."""
     per_query = metric in ("latency", "query-slowdown")
@@ -162,7 +243,7 @@ def make_series(
         if per_query:
             if row:
                 raise ValueError(f"Duplicate sample {sample}: {label}")
-            row.update(query_values(run, metric == "query-slowdown"))
+            row.update(query_values(run, metric == "query-slowdown", queries))
         else:
             count = run.data["connections"]
             if count in row:
@@ -208,24 +289,29 @@ def draw_series(
         axes.plot(positions, high, "_", color=color)
 
 
-def draw_query_panel(axes: Axes, runs: list[PlotRun], metric: str) -> None:
+def draw_query_panel(
+    axes: Axes,
+    runs: list[PlotRun],
+    metric: str,
+    queries: list[int] | None = None,
+) -> None:
     """Places connection-count medians side by side within each query group."""
     counts = sorted({run.data["connections"] for run in runs})
-    queries = sorted({
+    query_ids = sorted(set(queries)) if queries is not None else sorted({
         query
         for run in runs
         for query in run.data["streams"][0]["query_order"]
     })
-    centers = {query: index for index, query in enumerate(queries)}
+    centers = {query: index for index, query in enumerate(query_ids)}
     spacing = 0.8 / len(counts)
     for index, count in enumerate(counts):
         subset = [run for run in runs if run.data["connections"] == count]
-        ((_, (columns, values)),) = make_series(subset, metric).items()
+        ((_, (columns, values)),) = make_series(subset, metric, queries).items()
         offset = (index - (len(counts) - 1) / 2) * spacing
         positions = np.array([centers[query] + offset for query in columns])
         draw_series(axes, f"N={count}", positions, values, connected=False)
-    axes.set_xticks(range(len(queries)), [f"Q{query}" for query in queries])
-    axes.set_xlim(-0.6, len(queries) - 0.4)
+    axes.set_xticks(range(len(query_ids)), [f"Q{query}" for query in query_ids])
+    axes.set_xlim(-0.6, len(query_ids) - 0.4)
     axes.set_ylabel(Y_LABELS[metric])
     axes.grid(axis="y", alpha=0.2)
     axes.legend(ncols=min(5, len(counts)), fontsize=9)
@@ -233,7 +319,9 @@ def draw_query_panel(axes: Axes, runs: list[PlotRun], metric: str) -> None:
         axes.axhline(1, color="grey", linestyle="--", linewidth=1)
 
 
-def query_figure(runs: list[PlotRun], metric: str) -> plt.Figure:
+def query_figure(
+    runs: list[PlotRun], metric: str, queries: list[int] | None = None
+) -> plt.Figure:
     """Separates backends into panels with grouped query medians and CIs."""
     groups: dict[str, list[PlotRun]] = defaultdict(list)
     for run in runs:
@@ -243,7 +331,7 @@ def query_figure(runs: list[PlotRun], metric: str) -> plt.Figure:
         sharex=True, squeeze=False, layout="constrained",
     )
     for (label, subset), panel in zip(groups.items(), axes[:, 0]):
-        draw_query_panel(panel, subset, metric)
+        draw_query_panel(panel, subset, metric, queries)
         panel.set_title(label)
     axes[-1, 0].set_xlabel("TPC-H query")
     figure.suptitle("Median across samples; bars: 95% bootstrap CI")
@@ -266,17 +354,18 @@ def connection_figure(runs: list[PlotRun], metric: str) -> plt.Figure:
     return figure
 
 
-def render_metric(runs: list[PlotRun], metric: str, output: Path) -> None:
+def render_metric(
+    runs: list[PlotRun],
+    metric: str,
+    output: Path,
+    settings: PlotSettings | None = None,
+) -> None:
     """Renders one metric into shareable PNG and PDF files."""
-    runs = select_runs(runs, metric)
-    if metric in ("slowdown", "query-slowdown"):
-        if not runs:
-            raise ValueError("No comparison runs available for slowdown")
-        for run in runs:
-            attach_baseline(run)
+    settings = settings if settings is not None else PlotSettings()
+    runs = prepare_runs(runs, metric, settings)
     per_query = metric in ("latency", "query-slowdown")
     figure = (
-        query_figure(runs, metric) if per_query
+        query_figure(runs, metric, settings.queries) if per_query
         else connection_figure(runs, metric)
     )
     output.mkdir(parents=True, exist_ok=True)
@@ -285,32 +374,39 @@ def render_metric(runs: list[PlotRun], metric: str, output: Path) -> None:
     plt.close(figure)
 
 
-def parse_arguments() -> argparse.Namespace:
+def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     """Parses a result/index path and the figures to produce."""
     parser = argparse.ArgumentParser(description="Plot TPC-H benchmark results")
     parser.add_argument("source", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--config", type=Path, help="TOML with a [plot] table")
+    parser.add_argument(
+        "--queries", nargs="+", type=int, default=argparse.SUPPRESS,
+        help="Query IDs to show in per-query figures only",
+    )
+    parser.add_argument(
+        "--query-connections", dest="connections", nargs="+", type=int,
+        default=argparse.SUPPRESS,
+        help="Connection counts to show in per-query figures only",
+    )
     parser.add_argument(
         "--metrics", nargs="+", choices=METRICS, default=METRICS
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> None:
     """Plots requested measurements without silently dropping missing data."""
     args = parse_arguments()
+    settings = load_plot_settings(args)
     source = args.source.expanduser().resolve()
     runs = load_runs(source)
     output = args.output or source.parent / "plots"
-    # Check all references before creating a partial set of figures.
-    if any(metric in ("slowdown", "query-slowdown") for metric in args.metrics):
-        comparisons = select_runs(runs, "slowdown")
-        if not comparisons:
-            raise ValueError("No comparison runs available for slowdown")
-        for run in comparisons:
-            attach_baseline(run)
+    # Reject missing selections or references before writing partial figures.
     for metric in args.metrics:
-        render_metric(runs, metric, output)
+        prepare_runs(runs, metric, settings)
+    for metric in args.metrics:
+        render_metric(runs, metric, output, settings)
     print(f"Figures: {output}")
 
 

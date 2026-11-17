@@ -115,6 +115,18 @@ is drawn without a confidence bar. Per-query figures have one backend per
 panel; connection-count points are offset horizontally within each query
 group, without connecting lines. Overall QPS/slowdown figures retain curves.
 
+For per-query figures, `--queries` selects query IDs and `--query-connections`
+selects connection counts. Optional TOML `[plot].queries` and
+`[plot].connections` provide the same settings via `--config`; explicit CLI
+values take precedence. An omitted dimension retains its normal selection.
+Selected query columns retain their original within-run averages and paired
+sample resampling. Connection filters retain each selected run's reference.
+Overall QPS and slowdown figures ignore these per-query filters.
+
+Missing requested counts for a backend or requested query data in a selected
+stream cause an error before figure output. Slowdown figures still require
+N>=2. Explicit N=1 latency selections can use the saved baseline record.
+
 Slowdown plots require the referenced file and saved baseline latencies to
 agree, with matching backend, database, sample, seed, engine version,
 and fallback settings. Missing required data, incomplete sample blocks, or
