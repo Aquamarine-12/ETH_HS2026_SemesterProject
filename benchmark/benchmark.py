@@ -49,7 +49,7 @@ def main() -> None:
             flush=True,
         )
     baseline = (
-        load_baseline(settings.baseline_json)
+        load_baseline(settings.baseline_json, settings.io_backend)
         if settings.baseline_json is not None
         else None
     )

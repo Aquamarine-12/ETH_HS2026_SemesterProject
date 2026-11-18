@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
 
-from core import Device, RunSettings, StreamOrder, StreamSeed
+from core import Device, IoBackend, RunSettings, StreamOrder, StreamSeed
 
 PATH_FIELDS = {
     "db",
@@ -61,6 +61,7 @@ def load_run_settings(args: argparse.Namespace) -> RunSettings:
     overrides = {key: val for key, val in vars(args).items() if key in names}
     values.update(resolve_paths(overrides, Path.cwd()))
     values["device"] = Device(values["device"])
+    values["io_backend"] = IoBackend(values["io_backend"])
     values["seed"] = parse_seed(values["seed"])
     return RunSettings(**values)
 
@@ -73,6 +74,14 @@ def parse_seed(value: str | int) -> StreamSeed:
         return StreamOrder(value.upper())
     except ValueError:
         return int(value)
+
+
+def add_io_backend_argument(parser: argparse.ArgumentParser) -> None:
+    """Adds the GPU input-path option shared by single runs and sweeps."""
+    parser.add_argument(
+        "--io-backend", choices=list(IoBackend), default=argparse.SUPPRESS,
+        help="Sirius I/O path (GPU only; default: io_uring)",
+    )
 
 
 def add_run_arguments(parser: argparse.ArgumentParser) -> None:
@@ -95,6 +104,7 @@ def add_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--sirius-extension", type=Path, default=argparse.SUPPRESS
     )
+    add_io_backend_argument(parser)
     parser.add_argument(
         "--baseline-json",
         "--baseline",
@@ -132,6 +142,7 @@ def parse_sweep_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--samples", type=int)
     parser.add_argument("--connections", type=int, nargs="+")
+    add_io_backend_argument(parser)
     return parser.parse_args(argv)
 
 

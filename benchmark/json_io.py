@@ -72,11 +72,18 @@ def index_entry(
     }
 
 
-def load_baseline(path: Path) -> QueryLatencies:
+def load_baseline(
+    path: Path, io_backend: str | None = None
+) -> QueryLatencies:
     """Reads per-query latencies from a separate single-stream reference."""
     result = read_json(path)
     if result["connections"] != 1:
         raise ValueError(f"Expected an N=1 baseline: {path}")
+    if io_backend is not None and result["device"] == "gpu":
+        if result.get("io_backend") != io_backend:
+            raise ValueError(
+                f"Baseline I/O backend differs or is unknown: {path}"
+            )
     return {
         int(query_id): latency
         for query_id, latency in result["streams"][0][
@@ -99,6 +106,9 @@ def result_document(result: BenchmarkResult, output: Path) -> JsonObject:
         "sample": settings.sample,
         "duckdb_version": result.duckdb_version,
         "cpu_fallback": result.cpu_fallback,
+        "io_backend": (
+            settings.io_backend if settings.device == "gpu" else None
+        ),
         "process_id": result.process_id,
         "connections": settings.connections,
         "seed": settings.seed,

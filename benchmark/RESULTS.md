@@ -12,6 +12,7 @@ write result JSON. Each file describes one measured workload with N streams.
 | `sample` | Experiment sample number, starting at 1 |
 | `duckdb_version` | Engine version reported by `PRAGMA version` |
 | `cpu_fallback` | False, matching current execution settings |
+| `io_backend` | `io_uring` or `kvikio` for GPU runs; null for CPU runs |
 | `process_id` | PID of this fresh measurement process |
 | `connections` | Number of concurrent streams, N |
 | `seed` | Integer shuffle seed, `ASC` (default), `DESC`, or `ASC-DESC` |
@@ -28,6 +29,13 @@ Every `streams` entry contains `stream_id` (zero-based), `query_order` (all 22
 query IDs), and `query_latencies_s` (query ID to seconds). JSON object keys
 are strings. Baseline latency keys therefore also become strings on disk.
 Query-result rows are not saved.
+
+`io_backend = "kvikio"` means the fixed workaround configuration: one GPU,
+`KVIKIO_COMPAT_MODE=ON`, and `KVIKIO_AUTO_DIRECT_IO_READ=0`. The generated
+Sirius YAML retains the selected backend, admission count, and GPU topology;
+the settings JSON retains the requested selection even for CPU runs, where
+it has no effect. Native `io_uring` runs leave GPU topology at Sirius's default.
+GPU comparisons require a baseline with a matching recorded I/O backend.
 
 The old `baseline` and `isolated_latencies_s` fields are now named
 `baseline_json` and `baseline_latencies_s`. The old `cache_reset` description
@@ -129,7 +137,10 @@ N>=2. Explicit N=1 latency selections can use the saved baseline record.
 
 Slowdown plots require the referenced file and saved baseline latencies to
 agree, with matching backend, database, sample, seed, engine version,
-and fallback settings. Missing required data, incomplete sample blocks, or
+and fallback/I/O settings. Older result pairs without an I/O field remain
+plottable together, but cannot establish a match with a newly recorded GPU
+I/O backend. GPU labels include the recorded I/O backend to keep separate
+configurations in separate series. Missing required data, incomplete sample blocks, or
 missing files raise an error. Values are never filled with zero, and broken
 comparisons are never silently omitted. Baseline-role entries are explicitly
 excluded from slowdown plots. All slowdown plots show only N>=2, with a

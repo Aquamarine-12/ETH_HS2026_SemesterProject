@@ -27,6 +27,10 @@ python sweep.py --config experiment-sf10.toml
 # Or a short trial: three samples, N=1 and N=2 only.
 python sweep.py --config experiment-sf10.toml --samples 3 --connections 1 2
 
+# GPU I/O workaround for the tested cluster Sirius binary; CPU is unchanged.
+python sweep.py --config experiment-sf10.toml --io-backend kvikio \
+  --samples 3 --connections 2 4
+
 # Use the index path printed by sweep.py.
 python -m pip install -r requirements-plot.txt
 python plot.py results/sweep-YYYYMMDD-HHMMSS-ffffff/index.json
@@ -53,6 +57,7 @@ device = "gpu"
 connections = 2
 sirius_extension = "~/.local/lib/sirius/sirius.duckdb_extension"
 results_dir = "results"
+# io_backend = "kvikio"  # GPU only; default: "io_uring"
 # seed = 42
 # baseline_json = "results/cpu-baseline.json"
 
@@ -80,6 +85,36 @@ its requested N>1 runs. Requested N=1 points reuse that baseline; they do not
 trigger a second run or receive an artificial slowdown value. The main entry
 point prints a warning explaining this. Sweep references are always generated
 automatically, regardless of a single-run baseline configured in TOML.
+
+### GPU I/O backend
+
+`--io-backend io_uring` (default) selects Sirius's native input path. The
+generated YAML calls this backend `sirius`, the name used by older builds
+and retained as an alias for `native` in newer builds. It requires usable
+kernel `io_uring`; a node with `kernel.io_uring_disabled=2` blocks this path.
+
+`--io-backend kvikio` selects the tested workaround: one GPU, POSIX file
+reads, and Linux page-cache buffering. The runner sets `KVIKIO_COMPAT_MODE=ON`
+and `KVIKIO_AUTO_DIRECT_IO_READ=0` before loading Sirius; no manual exports
+are needed. Admission is still set to N, so multiple connections share the
+single GPU. CPU query fallback remains disabled. Selecting this option on a
+CPU run has no effect on execution.
+
+Both single runs and sweeps accept the option. Set `io_backend = "kvikio"`
+in `[run]` to avoid repeating it; an explicit CLI option overrides TOML.
+Sweeps pass the selection to each fresh child process, including baselines.
+
+KvikIO requires an installed Sirius build that still supports that backend;
+recent upstream code rejects it. The cluster binary tested in this chat
+completed all 22 queries with the workaround. See the
+[Sirius configuration reference](https://github.com/sirius-db/sirius/blob/main/docs/super-sirius/configuration.md#scan-manager--io-configuration)
+and [KvikIO runtime settings](https://docs.nvidia.com/kvikio/latest/runtime_settings/).
+
+The I/O path can change timing and contention, so each GPU JSON records
+`io_backend`, and GPU plot labels include it. Use a baseline from the same
+I/O backend; regenerate older GPU baselines whose I/O selection was not
+recorded. KvikIO's single-GPU selection also matters when comparing it with a
+native run on a machine where Sirius normally sees multiple GPUs.
 
 ## Cache and timing
 
@@ -179,8 +214,9 @@ only what is displayed; the measurement files and overall metrics are unchanged.
 GPU workers keep `enable_duckdb_fallback = false`; unsupported GPU execution
 fails. The generated per-run Sirius YAML sets startup-only admission to N.
 This setting has no equivalent runtime `SET`/connection option, so the YAML
-must exist before loading Sirius. Other Sirius defaults, including Quent
-telemetry, remain intact. Scheduler GPU visibility is preserved.
+must exist before loading Sirius. The YAML also selects the I/O backend and,
+for KvikIO, one GPU. Other Sirius defaults, including Quent telemetry, remain
+intact. Scheduler GPU visibility is preserved.
 
 ## User-local installation
 

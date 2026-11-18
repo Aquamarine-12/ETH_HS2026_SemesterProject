@@ -36,6 +36,13 @@ class Device(StrEnum):
     GPU = "gpu"
 
 
+class IoBackend(StrEnum):
+    """Selects Sirius's native io_uring or KvikIO/POSIX input path."""
+
+    IO_URING = "io_uring"
+    KVIKIO = "kvikio"
+
+
 class StreamOrder(StrEnum):
     """Names deterministic query stream orders."""
 
@@ -56,6 +63,7 @@ class RunSettings:
     connections: int = 1
     seed: StreamSeed = StreamOrder.ASC
     sirius_extension: Path = DEFAULT_SIRIUS_EXTENSION
+    io_backend: IoBackend = IoBackend.IO_URING
     baseline_json: Path | None = None
     output: Path | None = None
     results_dir: Path = Path("results")
@@ -133,11 +141,27 @@ def reset_database_cache(database: Path) -> None:
         os.posix_fadvise(file.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
 
 
+def sirius_config_yaml(connections: int, io_backend: IoBackend) -> str:
+    """Builds startup YAML with query admission and the selected I/O path."""
+    # Older Sirius names its native io_uring backend "sirius"; newer builds
+    # retain that name as an alias for "native".
+    backend = "sirius" if io_backend == IoBackend.IO_URING else "kvikio"
+    config = (
+        f"sirius:\n  max_concurrent_queries: {connections}\n"
+        f"  executor:\n    scan_manager:\n      backend: {backend}\n"
+    )
+    if io_backend == IoBackend.KVIKIO:
+        # Multi-GPU execution forces older builds back to the native backend.
+        config += "  topology:\n    num_gpus: 1\n"
+    return config
+
+
 def load_sirius(
     connection: duckdb.DuckDBPyConnection,
     extension: Path,
     connections: int,
     config_path: Path,
+    io_backend: IoBackend = IoBackend.IO_URING,
 ) -> None:
     """Initializes Sirius with admission for all concurrent streams."""
     if not extension.is_file():
@@ -146,9 +170,14 @@ def load_sirius(
     # Write it before LOAD initializes the shared Sirius runtime.
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
-        f"sirius:\n  max_concurrent_queries: {connections}\n", encoding="utf-8"
+        sirius_config_yaml(connections, io_backend), encoding="utf-8"
     )
     os.environ["SIRIUS_CONFIG_FILE"] = str(config_path.resolve())
+    if io_backend == IoBackend.KVIKIO:
+        # Use the tested POSIX/page-cache path without io_uring or cuFile.
+        # Set these before LOAD initializes KvikIO's process-wide defaults.
+        os.environ["KVIKIO_COMPAT_MODE"] = "ON"
+        os.environ["KVIKIO_AUTO_DIRECT_IO_READ"] = "0"
     escaped_path = str(extension.resolve()).replace("'", "''")
     connection.execute(f"LOAD '{escaped_path}'")
     connection.execute("SET gpu_execution = false")
@@ -237,7 +266,8 @@ def initialize_database(
     """Loads the backend and reads metadata before any timed work."""
     if settings.device == Device.GPU:
         load_sirius(
-            root, settings.sirius_extension, settings.connections, sirius_config
+            root, settings.sirius_extension, settings.connections,
+            sirius_config, settings.io_backend,
         )
     return load_queries(root), root.execute("PRAGMA version").fetchone()[0]
 

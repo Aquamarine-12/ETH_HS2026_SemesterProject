@@ -41,6 +41,8 @@ def run_child(settings: RunSettings) -> None:
         str(settings.output),
         "--sirius-extension",
         str(settings.sirius_extension),
+        "--io-backend",
+        settings.io_backend,
         "--seed",
         str(settings.seed),
     ]
@@ -83,7 +85,10 @@ def main() -> None:
     """Runs the sweep and publishes an index after every sample succeeds."""
     args = parse_sweep_arguments()
     # Sweep overrides are lists/counts, not single-run argument overrides.
-    run = load_run_settings(argparse.Namespace(config=args.config))
+    run_args = argparse.Namespace(config=args.config)
+    if hasattr(args, "io_backend"):
+        run_args.io_backend = args.io_backend
+    run = load_run_settings(run_args)
     run = replace(run, output=None, baseline_json=None)
     sweep = load_sweep_settings(args, run)
     root = create_result_directory(sweep.output, "sweep")

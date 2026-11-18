@@ -120,6 +120,8 @@ def attach_baseline(run: PlotRun) -> None:
     ):
         if run.data[key] != baseline_data[key]:
             raise ValueError(f"Baseline {key} differs for {run.path}")
+    if run.data.get("io_backend") != baseline_data.get("io_backend"):
+        raise ValueError(f"Baseline io_backend differs for {run.path}")
     run.baseline = load_baseline(path)
     recorded = run.data["baseline_latencies_s"]
     if (
@@ -225,6 +227,8 @@ def group_label(run: PlotRun, per_query: bool) -> str:
     """Labels backend series and optionally their connection count."""
     data = run.data
     label = f"{Path(data['database']).stem}: {data['device']}"
+    if data.get("io_backend") is not None:
+        label += f" ({data['io_backend']})"
     if per_query:
         label += f", N={data['connections']}"
     return label
