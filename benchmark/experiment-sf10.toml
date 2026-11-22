@@ -2,6 +2,8 @@
 # Paths are relative to this file. Each sample/backend gets its own N=1 baseline.
 [run]
 # io_backend = "kvikio"  # GPU workaround; default is "io_uring".
+# warmup = true         # Optional fixed-size warmup before every measurement.
+# warmup_streams = 5
 db = "data/sf10.duckdb"
 device = "cpu"
 connections = 2

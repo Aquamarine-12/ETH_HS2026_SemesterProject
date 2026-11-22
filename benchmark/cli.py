@@ -105,6 +105,7 @@ def add_run_arguments(parser: argparse.ArgumentParser) -> None:
         "--sirius-extension", type=Path, default=argparse.SUPPRESS
     )
     add_io_backend_argument(parser)
+    add_warmup_arguments(parser)
     parser.add_argument(
         "--baseline-json",
         "--baseline",
@@ -116,6 +117,19 @@ def add_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output", type=Path, default=argparse.SUPPRESS)
     parser.add_argument("--results-dir", type=Path, default=argparse.SUPPRESS)
     parser.add_argument("--sample", type=int, default=argparse.SUPPRESS)
+
+
+def add_warmup_arguments(parser: argparse.ArgumentParser) -> None:
+    """Adds independent warmup controls for single runs and sweeps."""
+    parser.add_argument(
+        "--warmup", action=argparse.BooleanOptionalAction,
+        default=argparse.SUPPRESS,
+        help="Run shuffled warmup streams before measurement (default: off)",
+    )
+    parser.add_argument(
+        "--warmup-streams", type=int, default=argparse.SUPPRESS,
+        help="Concurrent warmup streams, each with 22 queries (default: 5)",
+    )
 
 
 def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
@@ -143,6 +157,7 @@ def parse_sweep_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--samples", type=int)
     parser.add_argument("--connections", type=int, nargs="+")
     add_io_backend_argument(parser)
+    add_warmup_arguments(parser)
     return parser.parse_args(argv)
 
 

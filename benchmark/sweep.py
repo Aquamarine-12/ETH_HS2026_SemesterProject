@@ -35,6 +35,8 @@ def run_child(settings: RunSettings) -> None:
         settings.device,
         "--connections",
         str(settings.connections),
+        "--warmup-streams",
+        str(settings.warmup_streams),
         "--sample",
         str(settings.sample),
         "--output",
@@ -48,6 +50,8 @@ def run_child(settings: RunSettings) -> None:
     ]
     if settings.baseline_json is not None:
         command.extend(["--baseline-json", str(settings.baseline_json)])
+    if settings.warmup:
+        command.append("--warmup")
     subprocess.run(command, check=True)
 
 
@@ -84,11 +88,12 @@ def run_sample(
 def main() -> None:
     """Runs the sweep and publishes an index after every sample succeeds."""
     args = parse_sweep_arguments()
-    # Sweep overrides are lists/counts, not single-run argument overrides.
-    run_args = argparse.Namespace(config=args.config)
-    if hasattr(args, "io_backend"):
-        run_args.io_backend = args.io_backend
-    run = load_run_settings(run_args)
+    # Exclude sweep-only overrides when loading the shared run settings.
+    run_values = {
+        name: value for name, value in vars(args).items()
+        if name not in ("connections", "samples", "output")
+    }
+    run = load_run_settings(argparse.Namespace(**run_values))
     run = replace(run, output=None, baseline_json=None)
     sweep = load_sweep_settings(args, run)
     root = create_result_directory(sweep.output, "sweep")

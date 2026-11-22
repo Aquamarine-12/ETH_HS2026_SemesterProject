@@ -2,7 +2,8 @@
 
 One database instance serves independent worker connections in each process.
 Workers start together after database-file cache eviction and engine setup.
-Query timers include execute and full fetch; setup is excluded.
+Optional shuffled warmup streams complete before measured workers start.
+Query timers include execute and full fetch; setup and warmup are excluded.
 File formats and command-line parsing belong to the surrounding modules.
 """
 
@@ -14,7 +15,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import TypeAlias
@@ -62,6 +63,8 @@ class RunSettings:
     device: Device = Device.CPU
     connections: int = 1
     seed: StreamSeed = StreamOrder.ASC
+    warmup: bool = False
+    warmup_streams: int = 0  # 0 means no warmup.
     sirius_extension: Path = DEFAULT_SIRIUS_EXTENSION
     io_backend: IoBackend = IoBackend.IO_URING
     baseline_json: Path | None = None
@@ -92,6 +95,7 @@ class BenchmarkResult:
     duckdb_version: str
     process_id: int
     cpu_fallback: bool = False
+    warmup_orders: list[QueryOrder] = field(default_factory=list)
 
 
 def generate_tables(database: Path, scale_factor: float) -> None:
@@ -131,6 +135,16 @@ def make_streams(
         ]
     rng = random.Random(seed)
     return [rng.sample(query_ids, len(query_ids)) for _ in range(count)]
+
+
+def make_warmup_streams(
+    query_ids: QueryOrder, settings: RunSettings
+) -> list[QueryOrder]:
+    """Builds reproducible shuffled warmup orders independent of measured N."""
+    seed = settings.seed if isinstance(settings.seed, int) else settings.sample
+    # 0 means no warmup.
+    count = settings.warmup_streams if settings.warmup else 0
+    return make_streams(query_ids, count, seed)
 
 
 def reset_database_cache(database: Path) -> None:
@@ -213,8 +227,56 @@ def run_concurrent(
     queries: Queries,
     orders: list[QueryOrder],
     settings: RunSettings,
+    warmup_orders: list[QueryOrder] | None = None,
 ) -> tuple[list[StreamResult], float]:
-    """Runs workers and times only measurement release to final completion."""
+    """Warms the shared instance, then measures independent stream counts."""
+    warmup_orders = warmup_orders or []
+    count = max(len(orders), len(warmup_orders))
+    # Keep all connections open so shared engine caches survive both phases.
+    with ExitStack() as stack:
+        connections = [stack.enter_context(root.cursor()) for _ in range(count)]
+        for connection in connections:
+            configure_connection(connection, settings.device)
+        with ThreadPoolExecutor(max_workers=count) as pool:
+            if warmup_orders:
+                print(
+                    f"Running {len(warmup_orders)} warmup streams...",
+                    flush=True,
+                )
+                barrier = threading.Barrier(len(warmup_orders))
+                futures = [
+                    pool.submit(run_warmup_stream, con, queries, order, barrier)
+                    for con, order in zip(connections, warmup_orders)
+                ]
+                # Propagate warmup failures before submitting measured queries.
+                for future in futures:
+                    future.result()
+            print(
+                f"Measuring {len(orders)} {settings.device} streams...",
+                flush=True,
+            )
+            return measure_streams(pool, connections, queries, orders)
+
+
+def run_warmup_stream(
+    connection: duckdb.DuckDBPyConnection,
+    queries: Queries,
+    order: QueryOrder,
+    barrier: threading.Barrier,
+) -> None:
+    """Executes and fully fetches one warmup stream without query timers."""
+    barrier.wait()
+    for query_id in order:
+        connection.execute(queries[query_id]).fetchall()
+
+
+def measure_streams(
+    pool: ThreadPoolExecutor,
+    connections: list[duckdb.DuckDBPyConnection],
+    queries: Queries,
+    orders: list[QueryOrder],
+) -> tuple[list[StreamResult], float]:
+    """Times measurement release to final completion on existing workers."""
     started_at = 0.0
 
     def mark_start() -> None:
@@ -223,23 +285,11 @@ def run_concurrent(
         started_at = time.perf_counter()
 
     barrier = threading.Barrier(len(orders), action=mark_start)
-    # Register cleanup for a dynamic number of worker connections.
-    with ExitStack() as stack:
-        connections = [stack.enter_context(root.cursor()) for _ in orders]
-        for connection in connections:
-            configure_connection(connection, settings.device)
-        with ThreadPoolExecutor(max_workers=len(orders)) as pool:
-            futures = [
-                pool.submit(
-                    run_stream,
-                    connection,
-                    queries,
-                    order,
-                    barrier,
-                )
-                for connection, order in zip(connections, orders)
-            ]
-            results = [future.result() for future in futures]
+    futures = [
+        pool.submit(run_stream, connection, queries, order, barrier)
+        for connection, order in zip(connections, orders)
+    ]
+    results = [future.result() for future in futures]
     elapsed = max(stream.finished_at for stream in results) - started_at
     return results, elapsed
 
@@ -265,8 +315,13 @@ def initialize_database(
 ) -> tuple[Queries, str]:
     """Loads the backend and reads metadata before any timed work."""
     if settings.device == Device.GPU:
+        # Admission must accommodate either phase, including warm N=1 baselines.
+        admission = max(
+            settings.connections,
+            settings.warmup_streams if settings.warmup else 0,
+        )
         load_sirius(
-            root, settings.sirius_extension, settings.connections,
+            root, settings.sirius_extension, admission,
             sirius_config, settings.io_backend,
         )
     return load_queries(root), root.execute("PRAGMA version").fetchone()[0]
@@ -289,7 +344,7 @@ def benchmark(
 ) -> BenchmarkResult:
     """Measures one complete workload on a fresh database instance.
 
-    Eviction and setup precede timing; query timers include full result fetch.
+    Eviction, setup, and warmup precede timing; timers include full fetch.
 
     Args:
         settings: Backend, database, stream order, and connection count.
@@ -306,8 +361,10 @@ def benchmark(
         orders = make_streams(
             list(queries), settings.connections, settings.seed
         )
-        print(f"Running {len(orders)} {settings.device} streams...", flush=True)
-        streams, elapsed = run_concurrent(root, queries, orders, settings)
+        warmup_orders = make_warmup_streams(list(queries), settings)
+        streams, elapsed = run_concurrent(
+            root, queries, orders, settings, warmup_orders
+        )
     count = sum(len(stream.latencies) for stream in streams)
     return BenchmarkResult(
         settings=settings,
@@ -319,4 +376,5 @@ def benchmark(
         baseline_latencies_s=baseline,
         duckdb_version=version,
         process_id=os.getpid(),
+        warmup_orders=warmup_orders,
     )

@@ -73,14 +73,19 @@ def index_entry(
 
 
 def load_baseline(
-    path: Path, io_backend: str | None = None
+    path: Path, settings: RunSettings | None = None
 ) -> QueryLatencies:
     """Reads per-query latencies from a separate single-stream reference."""
     result = read_json(path)
     if result["connections"] != 1:
         raise ValueError(f"Expected an N=1 baseline: {path}")
-    if io_backend is not None and result["device"] == "gpu":
-        if result.get("io_backend") != io_backend:
+    if settings is not None:
+        if result.get("warmup", False) != settings.warmup:
+            raise ValueError(f"Baseline warmup mode differs: {path}")
+        if (
+            result["device"] == "gpu"
+            and result.get("io_backend") != settings.io_backend
+        ):
             raise ValueError(
                 f"Baseline I/O backend differs or is unknown: {path}"
             )
@@ -112,6 +117,10 @@ def result_document(result: BenchmarkResult, output: Path) -> JsonObject:
         "process_id": result.process_id,
         "connections": settings.connections,
         "seed": settings.seed,
+        "warmup": settings.warmup,
+        # 0 means no warmup.
+        "warmup_streams": settings.warmup_streams if settings.warmup else 0,
+        "warmup_query_orders": result.warmup_orders,
         "role": "baseline"
         if settings.connections == 1 and settings.baseline_json is None
         else "measurement",

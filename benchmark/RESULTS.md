@@ -16,6 +16,9 @@ write result JSON. Each file describes one measured workload with N streams.
 | `process_id` | PID of this fresh measurement process |
 | `connections` | Number of concurrent streams, N |
 | `seed` | Integer shuffle seed, `ASC` (default), `DESC`, or `ASC-DESC` |
+| `warmup` | Whether an unmeasured warmup phase was enabled |
+| `warmup_streams` | Concurrent warmup streams, independent of N; 0 when disabled |
+| `warmup_query_orders` | Shuffled query IDs for each warmup stream; empty when disabled |
 | `role` | `baseline` for an unreferenced N=1 run; otherwise `measurement` |
 | `baseline_json` | Reference path relative to this JSON file, or null |
 | `baseline_latencies_s` | Loaded reference query latencies, or null |
@@ -29,6 +32,14 @@ Every `streams` entry contains `stream_id` (zero-based), `query_order` (all 22
 query IDs), and `query_latencies_s` (query ID to seconds). JSON object keys
 are strings. Baseline latency keys therefore also become strings on disk.
 Query-result rows are not saved.
+
+Warmup settings default to disabled and five requested streams. When enabled,
+each warmup stream executes all 22 queries and fully fetches the results.
+The shuffle seed is the integer measurement seed, or the sample number for
+named measurement orders. This gives matching warmup orders across baseline
+and comparison runs in a sample. Only measured queries appear in `streams`,
+`total_queries`, QPS, and slowdown. Settings JSON retains the requested
+`warmup_streams` even when warmup is disabled; result JSON records zero then.
 
 `io_backend = "kvikio"` means the fixed workaround configuration: one GPU,
 `KVIKIO_COMPAT_MODE=ON`, and `KVIKIO_AUTO_DIRECT_IO_READ=0`. The generated
@@ -137,7 +148,10 @@ N>=2. Explicit N=1 latency selections can use the saved baseline record.
 
 Slowdown plots require the referenced file and saved baseline latencies to
 agree, with matching backend, database, sample, seed, engine version,
-and fallback/I/O settings. Older result pairs without an I/O field remain
+and fallback/I/O settings. Warmup enablement must also match; older results
+without warmup fields are treated as cold. Warmup stream counts and orders
+are metadata, not grouping or baseline compatibility requirements.
+Older result pairs without an I/O field remain
 plottable together, but cannot establish a match with a newly recorded GPU
 I/O backend. GPU labels include the recorded I/O backend to keep separate
 configurations in separate series. Missing required data, incomplete sample blocks, or
@@ -148,7 +162,9 @@ reference line at factor 1. QPS plots always include N=1 references.
 
 ## Current scope
 
-Each worker executes its 22-query stream once after synchronized release.
+Each measured worker executes its 22-query stream once after synchronized
+release. Optional warmup runs an independently sized group of shuffled streams
+before that release, with no cache reset or database reopening between phases.
 The cold-start reset is file-specific and best effort, as described in the
 README. Fresh processes prevent reuse of prior in-process CPU/GPU buffers.
 

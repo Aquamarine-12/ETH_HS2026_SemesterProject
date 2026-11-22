@@ -400,3 +400,37 @@ Python sources. From `benchmark/`, run
 `bash experiments/frontend_overhead_timing/run_timing_experiment.sh`.
 The runner still anchors relative database paths and generated results to
 `benchmark/`; the experiment's Python code and measurement protocol are unchanged.
+
+## Update: 2026-11-22 fixed-size warmup
+
+The active benchmark is split into `benchmark.py`, `core.py`, `cli.py`,
+`json_io.py`, `sweep.py`, and `plot.py`. The user authorized an opt-in
+`--warmup` phase with an independent `--warmup-streams` count (default 5).
+Every warmup stream executes all 22 queries once in shuffled order and fully
+fetches results. Baseline and concurrent measurements use the same warmup
+count rather than tying it to measurement N. Warmup shuffling uses the integer
+measurement seed, or the sample number for named measurement orders, so paired
+runs have identical warmup orders.
+
+Warmup completes before the measurement barrier and contributes no query
+timings or QPS/slowdown samples. The shared database instance and connection
+pool stay open without cache reset between phases. The pool and Sirius's
+startup admission accommodate the larger of N and the enabled warmup count.
+For N above that count, additional measurement connections use the shared
+engine caches without executing warmup themselves. Cold execution remains the
+default. Single-run and sweep CLI/TOML settings support both options; sweeps
+forward them to all children, including baselines. JSON records warmup
+enablement, effective count, and actual shuffled orders. At the user's request,
+the count remains an ordinary tunable, with default 5 and effective 0 meaning
+no warmup. Baseline loading and plotting check warmup enablement, not counts
+or orders. Plot grouping does not use warmup. Baseline loading accepts the
+existing settings object rather than separate I/O and warmup arguments.
+Sweep overrides forward shared run options without naming warmup separately.
+The frozen frontend timing experiment and current fallback setting are preserved.
+
+Verification passed with local DuckDB 1.5.6: real SF0.01 CPU warm baseline and
+comparison processes, custom warmup counts, cold execution, CLI/TOML overrides,
+sweep forwarding, saved orders, and recomputed metrics. Instrumented workers
+confirmed phase separation, connection reuse, timing exclusion, and warmup
+failure propagation. Sirius admission and plot metadata checks passed without
+running the GPU runtime or rendering figures. GPU/cluster validation is pending.

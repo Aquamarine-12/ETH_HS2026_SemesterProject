@@ -122,6 +122,8 @@ def attach_baseline(run: PlotRun) -> None:
             raise ValueError(f"Baseline {key} differs for {run.path}")
     if run.data.get("io_backend") != baseline_data.get("io_backend"):
         raise ValueError(f"Baseline io_backend differs for {run.path}")
+    if run.data.get("warmup", False) != baseline_data.get("warmup", False):
+        raise ValueError(f"Baseline warmup mode differs for {run.path}")
     run.baseline = load_baseline(path)
     recorded = run.data["baseline_latencies_s"]
     if (

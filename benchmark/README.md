@@ -59,6 +59,8 @@ sirius_extension = "~/.local/lib/sirius/sirius.duckdb_extension"
 results_dir = "results"
 # io_backend = "kvikio"  # GPU only; default: "io_uring"
 # seed = 42
+# warmup = true         # Default: false
+# warmup_streams = 5
 # baseline_json = "results/cpu-baseline.json"
 
 [sweep]
@@ -96,7 +98,8 @@ kernel `io_uring`; a node with `kernel.io_uring_disabled=2` blocks this path.
 `--io-backend kvikio` selects the tested workaround: one GPU, POSIX file
 reads, and Linux page-cache buffering. The runner sets `KVIKIO_COMPAT_MODE=ON`
 and `KVIKIO_AUTO_DIRECT_IO_READ=0` before loading Sirius; no manual exports
-are needed. Admission is still set to N, so multiple connections share the
+are needed. Admission accommodates the larger of measurement N and the enabled
+warmup stream count, so multiple connections share the
 single GPU. CPU query fallback remains disabled. Selecting this option on a
 CPU run has no effect on execution.
 
@@ -124,13 +127,31 @@ of a physical-disk cold start. It does not clear storage-device/server caches;
 other readers can refill the shared Linux page cache. No root access is needed.
 This caveat lives here rather than in a repeated JSON description field.
 
-Each worker executes its stream once, starting at a shared barrier. There is
-no preliminary query pass. Cache contents naturally change during execution;
-the eviction request happens before the workload, not between queries.
+By default, each worker executes its stream once, starting at a shared barrier.
+Cache contents naturally change during execution; the eviction request happens
+before the workload, not between queries.
+
+Enable `--warmup` for a warm-cache measurement. Before measurement, five
+concurrent streams each execute and fully fetch all 22 queries in shuffled
+order; `--warmup-streams` adjusts that count independently of measurement N.
+All warmup finishes before measurement starts, with the same database instance
+and connection pool kept open and no intervening cache reset. This warms shared
+engine caches but does not guarantee steady state or full RAM/VRAM residency.
+
+Use a warm baseline for warm measurements and a cold baseline for cold ones.
+For example, to enable warmup throughout a sweep:
+
+```bash
+python sweep.py --config experiment-sf10.toml --warmup
+```
+
+Single runs and sweeps accept CLI or TOML warmup settings. `--no-warmup`
+overrides enabled TOML warmup. Shuffling uses an integer `--seed`, otherwise
+the sample number, and actual warmup orders are recorded in JSON.
 
 Each query timer includes `execute(sql).fetchall()`. Overall elapsed time is
 measurement-barrier release to the last stream's completion. Setup, cache
-reset, output writing, and connection cleanup are excluded. QPS counts
+reset, warmup, output writing, and connection cleanup are excluded. QPS counts
 only the measured 22N queries. Slowdown is a latency factor: 1 means unchanged,
 1.2 means 20% higher latency, and 0.8 means 20% lower latency.
 
@@ -212,7 +233,8 @@ only what is displayed; the measurement files and overall metrics are unchanged.
 - `plot.py`: result aggregation, paired bootstrap medians, and Matplotlib.
 
 GPU workers keep `enable_duckdb_fallback = false`; unsupported GPU execution
-fails. The generated per-run Sirius YAML sets startup-only admission to N.
+fails. The generated per-run Sirius YAML sets startup-only admission to the
+larger of N and the enabled warmup stream count.
 This setting has no equivalent runtime `SET`/connection option, so the YAML
 must exist before loading Sirius. The YAML also selects the I/O backend and,
 for KvikIO, one GPU. Other Sirius defaults, including Quent telemetry, remain
