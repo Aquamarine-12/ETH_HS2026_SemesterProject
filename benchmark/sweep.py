@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from itertools import product
 from pathlib import Path
 
@@ -26,6 +26,28 @@ from json_io import (
     index_entry,
     write_json,
 )
+
+
+@dataclass
+class SweepProgress:
+    """Counts successfully completed benchmark invocations."""
+
+    total: int
+    completed: int = 0
+
+    def report(self) -> None:
+        """Prints completed benchmarks and their fraction of the full sweep."""
+        print(
+            f"Benchmarks completed: {self.completed}/{self.total} "
+            f"({self.completed / self.total:.1%})",
+            flush=True,
+        )
+
+    def run(self, settings: RunSettings) -> None:
+        """Reports before launching a child and counts successful completion."""
+        self.report()
+        run_child(settings)
+        self.completed += 1
 
 
 def run_child(settings: RunSettings) -> None:
@@ -61,7 +83,8 @@ def run_child(settings: RunSettings) -> None:
 
 
 def run_sample(
-    settings: RunSettings, connections: list[int], root: Path
+    settings: RunSettings, connections: list[int], root: Path,
+    progress: SweepProgress,
 ) -> list[JsonObject]:
     """Measures one reference and the requested concurrent workloads."""
     directory = (
@@ -75,7 +98,7 @@ def run_sample(
         baseline_json=None,
         output=directory / "baseline.json",
     )
-    run_child(baseline)
+    progress.run(baseline)
     entries = []
     if 1 not in connections:
         entries.append(index_entry(baseline, root, included=False))
@@ -89,7 +112,7 @@ def run_sample(
             baseline_json=baseline.output,
             output=directory / f"n{count}.json",
         )
-        run_child(measured)
+        progress.run(measured)
         entries.append(index_entry(measured, root))
     return entries
 
@@ -114,6 +137,10 @@ def main() -> None:
         },
     )
     entries: list[JsonObject] = []
+    progress = SweepProgress(
+        sweep.samples * len(sweep.devices) * len(sweep.warmup_streams)
+        * len(sweep.seeds) * (1 + sum(n != 1 for n in sweep.connections))
+    )
     for sample, device, warmup_streams, seed in product(
         range(1, sweep.samples + 1), sweep.devices,
         sweep.warmup_streams, sweep.seeds,
@@ -122,7 +149,7 @@ def main() -> None:
             run, sample=sample, device=device,
             warmup_streams=warmup_streams, seed=seed,
         )
-        entries.extend(run_sample(settings, sweep.connections, root))
+        entries.extend(run_sample(settings, sweep.connections, root, progress))
     write_json(
         root / "index.json",
         {
@@ -130,6 +157,7 @@ def main() -> None:
             "runs": entries,
         },
     )
+    progress.report()
     print(f"Sweep results: {root / 'index.json'}")
 
 

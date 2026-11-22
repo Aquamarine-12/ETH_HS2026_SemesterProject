@@ -518,3 +518,12 @@ CPU sweep with counts 0/2/3, two query orders, and N=1/N=2. References, metrics,
 single-field JSON, plot aggregation/dispatch, and derived hot/cold titles
 passed. Sirius admission was checked with a mock; GPU runtime and figure
 rendering were not exercised.
+
+## Update: 2026-11-22 sweep progress
+
+Before each benchmark subprocess, `sweep.py` prints completed/total benchmark
+invocations and the percentage completed, starting at zero and finishing with
+a final 100% report. The total includes each sample/backend/warmup/order
+combination's N=1 baseline and each requested N>1 run. Requested N=1 reuses
+the baseline without being counted twice. Only successful children advance
+the counter; warmup queries are part of a benchmark, not separate progress units.
