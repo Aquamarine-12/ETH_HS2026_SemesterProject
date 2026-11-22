@@ -280,13 +280,13 @@ it in `group_by` so those conditions are separate series. Otherwise, filter
 it to one value. Each selected connection count adds a series to per-query
 figures; total figures use connection count on the x-axis.
 
-The first entry in `group_by` controls light/dark shades; the remaining
-grouping dimensions and, in per-query figures, connection counts control
-hues. With `device` first, CPU uses light, less saturated shades and GPU
-uses dark, saturated shades of the same hue for matching conditions and
-connection counts. The lightness range is deliberately wide for contrast.
-Reordering `group_by` changes which dimension controls brightness. If the first
-dimension has only one selected value, colors use the base palette directly.
+The first entry in `group_by` selects a sequential palette for each group:
+`Blues`, `Oranges`, `Greens`, then `RdPu`, wrapping after four groups. Groups
+are assigned in sorted order, so with `device` first CPU uses `Blues` and
+GPU uses `Oranges`. Remaining grouping dimensions and per-query connection
+counts select shades within each palette, from light to dark. Matching
+secondary conditions use the same palette position across groups. A single
+series within a group uses a medium-dark shade.
 
 For example, select GPU cache comparisons with three queries and two Ns:
 

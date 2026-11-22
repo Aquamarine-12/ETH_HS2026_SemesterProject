@@ -9,7 +9,6 @@ Figures are written as PNG, with optional PDF, without needing DuckDB or a GPU.
 from __future__ import annotations
 
 import argparse
-import colorsys
 import tomllib
 from collections import defaultdict
 from dataclasses import dataclass, field, fields
@@ -30,6 +29,7 @@ METRICS = (
     "total_qps", "per_query_latency", "total_slowdown", "per_query_slowdown",
 )
 GROUP_FIELDS = ("device", "cache", "query_order")
+COLOR_SCHEMES = ["Blues", "Oranges", "Greens", "RdPu"]
 PER_QUERY = ("per_query_latency", "per_query_slowdown")
 SLOWDOWN = ("total_slowdown", "per_query_slowdown")
 Y_LABELS = {
@@ -361,45 +361,33 @@ def make_series(
     return series
 
 
-def group_shade(color: FloatArray, position: float) -> tuple[float, ...]:
-    """Separates related categories using both lightness and saturation."""
-    hue, _, saturation = colorsys.rgb_to_hls(*color)
-    # Keep gray neutral; use pastel-to-deep shades for colored hue families.
-    lightness = 0.74 - 0.46 * position
-    saturation = 0.62 + 0.28 * position if saturation else 0.0
-    return colorsys.hls_to_rgb(hue, lightness, saturation)
-
-
 def series_colors(
     runs: list[PlotRun], settings: PlotSettings, per_query: bool = False
 ) -> dict[str, tuple[float, ...]]:
-    """Pairs hues across the first grouping dimension using light/dark shades."""
+    """Cycles sequential palettes across the first grouping dimension."""
     primary = settings.group_by[0] if settings.group_by else None
     groups = {}
     for run in runs:
-        shade = dimension_value(run, primary) if primary else ""
-        hue: tuple[str | int, ...] = tuple(
+        group = dimension_value(run, primary) if primary else ""
+        shade: tuple[str | int, ...] = tuple(
             dimension_value(run, name) for name in settings.group_by[1:]
         )
         if per_query:
-            hue += (run.data["connections"],)
-        groups[group_label(run, settings, per_query)] = shade, hue
-    shades = sorted({shade for shade, _ in groups.values()})
-    hues = sorted({hue for _, hue in groups.values()})
-    # CPU precedes GPU: matching Ns share a hue, with CPU the lighter shade.
-    positions = dict(zip(shades, np.linspace(0.0, 1.0, len(shades))))
-    palette = (
-        plt.get_cmap("tab10")(np.arange(len(hues)))[:, :3]
-        if len(hues) <= 10
-        else plt.get_cmap("turbo")(np.linspace(0.05, 0.95, len(hues)))[:, :3]
-    )
-    base_colors = dict(zip(hues, palette))
+            shade += (run.data["connections"],)
+        groups[group_label(run, settings, per_query)] = group, shade
+    primary_values = sorted({group for group, _ in groups.values()})
+    shades = sorted({shade for _, shade in groups.values()})
+    palettes = {
+        group: plt.get_cmap(COLOR_SCHEMES[index % len(COLOR_SCHEMES)])
+        for index, group in enumerate(primary_values)
+    }
+    # Avoid near-white points; matching secondary conditions share intensity.
+    positions = dict(zip(
+        shades, np.linspace(0.45, 0.95, len(shades)) if len(shades) > 1 else [0.7]
+    ))
     return {
-        label: (
-            group_shade(base_colors[hue], positions[shade])
-            if len(shades) > 1 else tuple(base_colors[hue])
-        )
-        for label, (shade, hue) in groups.items()
+        label: tuple(palettes[group](positions[shade])[:3])
+        for label, (group, shade) in groups.items()
     }
 
 

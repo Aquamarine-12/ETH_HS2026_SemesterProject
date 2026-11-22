@@ -651,3 +651,11 @@ from 0.62 to 0.90; neutral gray stays neutral. With device first this gives
 pastel CPU colors and deep GPU colors. Single-value groups retain the base
 palette. This follows the paired-category approach described by ColorBrewer
 and the qualitative palette guidance in Matplotlib's documentation.
+
+The latest user-requested scheme replaces the HLS shade mapping: the first
+`group_by` dimension now assigns sequential palettes from `COLOR_SCHEMES`
+in `plot.py`: Blues, Oranges, Greens, RdPu, wrapping after four groups.
+Groups are sorted before assignment (device: CPU blue, GPU orange). Remaining
+dimensions and per-query Ns select shades from positions 0.45 through 0.95;
+a single secondary combination uses 0.7. Matching secondary combinations
+use the same palette position across groups. No new config flags are needed.

@@ -156,10 +156,10 @@ Per-query figures have one point series per condition/connection combination,
 with horizontal offsets within each query and no connecting lines. Total
 metrics use connection count as the x-axis.
 
-The first `group_by` dimension controls brightness; other grouping dimensions
-and per-query connection counts control hue. Matching CPU/GPU conditions
-share a hue when `device` comes first, with CPU light and less saturated and
-GPU dark and saturated. Neutral gray remains gray.
+The first `group_by` dimension assigns sequential palettes in sorted group
+order: `Blues`, `Oranges`, `Greens`, `RdPu`, then repeat. Remaining grouping
+dimensions and per-query connection counts select shades within a palette.
+Matching secondary conditions use the same palette position across groups.
 
 For total QPS and slowdown, each repeated run contributes its recorded value.
 Per-query latency first averages stream latencies within a run. Per-query
