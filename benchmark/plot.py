@@ -3,7 +3,7 @@
 Load a sweep index or a single result, retaining each reference association.
 Aggregate streams within each run before resampling whole experiment samples.
 Use the same bootstrap sample indices across a series' parameter combinations.
-Figures are written as PNG and PDF without needing DuckDB or a GPU.
+Figures are written as PNG, with optional PDF, without needing DuckDB or a GPU.
 """
 
 from __future__ import annotations
@@ -60,6 +60,7 @@ class PlotSettings:
     seeds: list[str | int] | None = None
     queries: list[int] | None = None
     connections: list[int] | None = None
+    pdf: bool = False
 
 
 def parse_order(value: str | int) -> str | int:
@@ -359,6 +360,38 @@ def make_series(
     return series
 
 
+def series_colors(
+    runs: list[PlotRun], settings: PlotSettings, per_query: bool = False
+) -> dict[str, tuple[float, ...]]:
+    """Pairs hues across the first grouping dimension using light/dark shades."""
+    primary = settings.group_by[0] if settings.group_by else None
+    groups = {}
+    for run in runs:
+        shade = dimension_value(run, primary) if primary else ""
+        hue: tuple[str | int, ...] = tuple(
+            dimension_value(run, name) for name in settings.group_by[1:]
+        )
+        if per_query:
+            hue += (run.data["connections"],)
+        groups[group_label(run, settings, per_query)] = shade, hue
+    shades = sorted({shade for shade, _ in groups.values()})
+    hues = sorted({hue for _, hue in groups.values()})
+    # CPU precedes GPU: matching Ns share a hue, with CPU the lighter shade.
+    lightness = dict(zip(
+        shades, np.linspace(0.4, 0.0, len(shades)) if len(shades) > 1 else [0.0]
+    ))
+    palette = (
+        plt.get_cmap("tab10")(np.arange(len(hues)))[:, :3]
+        if len(hues) <= 10
+        else plt.get_cmap("turbo")(np.linspace(0.05, 0.95, len(hues)))[:, :3]
+    )
+    base_colors = dict(zip(hues, palette))
+    return {
+        label: tuple(base_colors[hue] + (1 - base_colors[hue]) * lightness[shade])
+        for label, (shade, hue) in groups.items()
+    }
+
+
 def draw_series(
     axes: Axes,
     label: str,
@@ -388,7 +421,8 @@ def draw_query_panel(
 ) -> None:
     """Places condition/connection series side by side within each query."""
     series = make_series(runs, metric, settings)
-    axes.set_prop_cycle(color=plt.get_cmap("tab20", len(series)).colors)
+    colors = series_colors(runs, settings, per_query=True)
+    axes.set_prop_cycle(color=[colors[label] for label in series])
     query_ids = sorted({
         query for columns, _ in series.values() for query in columns
     })
@@ -426,7 +460,8 @@ def connection_figure(
     """Plots throughput or slowdown against connection count."""
     figure, axes = plt.subplots(figsize=(9, 5), layout="constrained")
     series = make_series(runs, metric, settings)
-    axes.set_prop_cycle(color=plt.get_cmap("tab20", len(series)).colors)
+    colors = series_colors(runs, settings)
+    axes.set_prop_cycle(color=[colors[label] for label in series])
     for label, (columns, values) in series.items():
         draw_series(axes, label, np.array(columns, dtype=float), values)
     axes.set_xlabel("Connections")
@@ -465,12 +500,13 @@ def add_figure_title(
 
 
 def plot_basename(runs: list[PlotRun], metric: str) -> str:
-    """Names a figure using the orders, cache modes, and Ns it displays."""
+    """Names a figure using the devices, orders, cache modes, and Ns shown."""
+    devices = sorted({dimension_value(run, "device") for run in runs})
     orders = sorted({dimension_value(run, "query_order") for run in runs})
     cache_modes = sorted({dimension_value(run, "cache") for run in runs})
     connections = sorted({run.data["connections"] for run in runs})
     return (
-        f"{metric}__order-{'+'.join(orders)}"
+        f"{metric}__devices-{'+'.join(devices)}__order-{'+'.join(orders)}"
         f"__cache-{'+'.join(cache_modes)}"
         f"__connections-{'+'.join(str(count) for count in connections)}"
     )
@@ -482,7 +518,7 @@ def render_metric(
     output: Path,
     settings: PlotSettings | None = None,
 ) -> None:
-    """Renders one metric into shareable PNG and PDF files."""
+    """Renders one metric as PNG and optionally PDF."""
     settings = settings if settings is not None else PlotSettings()
     runs = prepare_runs(runs, metric, settings)
     per_query = metric in PER_QUERY
@@ -493,7 +529,7 @@ def render_metric(
     add_figure_title(figure, runs, metric)
     output.mkdir(parents=True, exist_ok=True)
     basename = plot_basename(runs, metric)
-    for suffix in ("png", "pdf"):
+    for suffix in (("png", "pdf") if settings.pdf else ("png",)):
         figure.savefig(output / f"{basename}.{suffix}", dpi=180)
     plt.close(figure)
 

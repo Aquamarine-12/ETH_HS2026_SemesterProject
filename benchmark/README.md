@@ -219,11 +219,13 @@ The four plotting metrics are:
 | `total_slowdown` | Mean slowdown factor versus connection count |
 | `per_query_slowdown` | Slowdown factor for each selected query |
 
-All four are produced by default, each as PNG and PDF directly in one `plots/`
-directory beside the source JSON. Filenames include the query orders, cache
-regimes, and connection counts actually plotted, for example
-`total_qps__order-ASC__cache-cold+hot__connections-1+2+4+7.png`.
-Multiple values use `+`; PNG and PDF share the same basename. There are no
+All four are produced by default as PNG directly in one `plots/` directory
+beside the source JSON. Set `pdf = true` under `[plot]` to also export PDF;
+omitting it or setting it to `false` produces only PNG. Filenames include
+the devices, query orders, cache regimes, and connection counts actually
+plotted, for example
+`total_qps__devices-cpu+gpu__order-ASC__cache-cold+hot__connections-1+2+4+7.png`.
+Multiple values use `+`; PNG and optional PDF share a basename. There are no
 automatic cache/order subdirectories. `--output DIR` selects another folder.
 
 Each run first contributes one stream-averaged value per query. Figures show
@@ -249,10 +251,10 @@ group_by = ["device", "cache"]
 # connections = [1, 2, 3, 4, 5]
 ```
 
-The supplied `plot-comparison.toml` contains this example:
+The supplied `configs/plots/plot-comparison-example.toml` contains this example:
 
 ```bash
-python plot.py path/to/index.json --config plot-comparison.toml
+python plot.py path/to/index.json --config configs/plots/plot-comparison-example.toml
 ```
 
 For two GPU cold/hot lines, set `devices = ["gpu"]` and
@@ -270,12 +272,20 @@ warmup stream count: zero is cold, a positive count is hot.
 | `seeds` | `--seeds` | Select named query orders or integer shuffle seeds |
 | `connections` | `--connections` | Filter connection counts for every metric |
 | `queries` | `--queries` | Filter query IDs for per-query metrics |
+| `pdf` | Config only | Also export PDF when `true`; default: `false` |
 
 CLI selections override the corresponding TOML values. Omitted filters keep
 all available values. If a selected dimension has multiple values, include
 it in `group_by` so those conditions are separate series. Otherwise, filter
 it to one value. Each selected connection count adds a series to per-query
 figures; total figures use connection count on the x-axis.
+
+The first entry in `group_by` controls light/dark shades; the remaining
+grouping dimensions and, in per-query figures, connection counts control
+hues. With `device` first, CPU uses a lighter shade and GPU a darker shade
+of the same hue for matching conditions and connection counts. Reordering
+`group_by` changes which dimension controls brightness. If the first
+dimension has only one selected value, colors use the base palette directly.
 
 For example, select GPU cache comparisons with three queries and two Ns:
 

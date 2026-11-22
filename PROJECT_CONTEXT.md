@@ -626,3 +626,21 @@ outputs, single-result and baseline-only sources, and an external warm-batch
 reference from another sample. GPU execution was not exercised. Hashes
 confirmed core.py, cli.py, sweep.py, benchmark.py, json_io.py, and hardware.py
 were unchanged from the other agent's implementation.
+
+## Update: 2026-11-22 plot output and colors
+
+Plotting now defaults to PNG only. `[plot].pdf = true` additionally exports
+PDF; omission or false keeps PNG only. Filenames also include the selected
+devices, for example `total_qps__devices-cpu+gpu__order-ASC__cache-cold+hot__connections-1+2+4+7.png`.
+
+The first `group_by` dimension controls light/dark shades. Remaining grouping
+dimensions and per-query connection counts control hues, so matching CPU/GPU
+conditions and Ns share a hue with CPU lighter and GPU darker when `device`
+comes first. Total-metric lines follow the same mapping. A single selected
+value uses the base shade. The supplied plotting example is now located at
+`benchmark/configs/plots/plot-comparison-example.toml`.
+
+Verified all four metrics export PNG only by default, TOML true/false controls
+PDF export, selected devices appear in filenames, and the rendered colors
+match across CPU/GPU conditions. Checked reordered/empty grouping and more
+than ten hues, and visually inspected a synthetic per-query comparison.

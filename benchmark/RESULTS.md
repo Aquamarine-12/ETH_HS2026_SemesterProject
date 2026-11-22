@@ -145,14 +145,20 @@ be grouped. Omitted filters keep all available measurements, and grouping
 defaults to all three dimensions. Cold means zero warmup streams; hot means
 a positive count.
 
-All selected comparison series share one figure per metric. Every PNG/PDF
-is written directly to the output folder with its metric, query orders, cache
-regimes, and displayed connection counts in the filename, such as
-`total_qps__order-ASC__cache-cold+hot__connections-1+2+4+7.png`.
+All selected comparison series share one figure per metric. PNG is always
+written; PDF is additionally exported only with `[plot].pdf = true`.
+Every figure is written directly to the output folder with its metric,
+devices, query orders, cache regimes, and displayed connection counts in the
+filename, such as
+`total_qps__devices-cpu+gpu__order-ASC__cache-cold+hot__connections-1+2+4+7.png`.
 Plotting no longer creates warmup/order subdirectories.
 Per-query figures have one point series per condition/connection combination,
 with horizontal offsets within each query and no connecting lines. Total
 metrics use connection count as the x-axis.
+
+The first `group_by` dimension controls brightness; other grouping dimensions
+and per-query connection counts control hue. Matching CPU/GPU conditions
+share a hue when `device` comes first, with CPU lighter and GPU darker.
 
 For total QPS and slowdown, each repeated run contributes its recorded value.
 Per-query latency first averages stream latencies within a run. Per-query

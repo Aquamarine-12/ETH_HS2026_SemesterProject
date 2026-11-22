@@ -1,5 +1,6 @@
 # Four lines: CPU/GPU, each with cold/hot cache, in ascending query order.
 [plot]
+# pdf = true  # Also export PDF; PNG is always produced.
 metrics = ["total_qps"]
 devices = ["cpu", "gpu"]
 cache_modes = ["cold", "hot"]
