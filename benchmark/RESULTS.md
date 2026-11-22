@@ -158,7 +158,8 @@ metrics use connection count as the x-axis.
 
 The first `group_by` dimension controls brightness; other grouping dimensions
 and per-query connection counts control hue. Matching CPU/GPU conditions
-share a hue when `device` comes first, with CPU lighter and GPU darker.
+share a hue when `device` comes first, with CPU light and less saturated and
+GPU dark and saturated. Neutral gray remains gray.
 
 For total QPS and slowdown, each repeated run contributes its recorded value.
 Per-query latency first averages stream latencies within a run. Per-query

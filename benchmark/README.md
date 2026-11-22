@@ -282,9 +282,10 @@ figures; total figures use connection count on the x-axis.
 
 The first entry in `group_by` controls light/dark shades; the remaining
 grouping dimensions and, in per-query figures, connection counts control
-hues. With `device` first, CPU uses a lighter shade and GPU a darker shade
-of the same hue for matching conditions and connection counts. Reordering
-`group_by` changes which dimension controls brightness. If the first
+hues. With `device` first, CPU uses light, less saturated shades and GPU
+uses dark, saturated shades of the same hue for matching conditions and
+connection counts. The lightness range is deliberately wide for contrast.
+Reordering `group_by` changes which dimension controls brightness. If the first
 dimension has only one selected value, colors use the base palette directly.
 
 For example, select GPU cache comparisons with three queries and two Ns:

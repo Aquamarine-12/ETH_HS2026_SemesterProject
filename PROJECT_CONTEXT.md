@@ -644,3 +644,10 @@ Verified all four metrics export PNG only by default, TOML true/false controls
 PDF export, selected devices appear in filenames, and the rendered colors
 match across CPU/GPU conditions. Checked reordered/empty grouping and more
 than ten hues, and visually inspected a synthetic per-query comparison.
+
+The user requested stronger shade separation. Related group colors now
+preserve hue while varying HLS lightness from 0.74 to 0.28 and saturation
+from 0.62 to 0.90; neutral gray stays neutral. With device first this gives
+pastel CPU colors and deep GPU colors. Single-value groups retain the base
+palette. This follows the paired-category approach described by ColorBrewer
+and the qualitative palette guidance in Matplotlib's documentation.

@@ -9,6 +9,7 @@ Figures are written as PNG, with optional PDF, without needing DuckDB or a GPU.
 from __future__ import annotations
 
 import argparse
+import colorsys
 import tomllib
 from collections import defaultdict
 from dataclasses import dataclass, field, fields
@@ -360,6 +361,15 @@ def make_series(
     return series
 
 
+def group_shade(color: FloatArray, position: float) -> tuple[float, ...]:
+    """Separates related categories using both lightness and saturation."""
+    hue, _, saturation = colorsys.rgb_to_hls(*color)
+    # Keep gray neutral; use pastel-to-deep shades for colored hue families.
+    lightness = 0.74 - 0.46 * position
+    saturation = 0.62 + 0.28 * position if saturation else 0.0
+    return colorsys.hls_to_rgb(hue, lightness, saturation)
+
+
 def series_colors(
     runs: list[PlotRun], settings: PlotSettings, per_query: bool = False
 ) -> dict[str, tuple[float, ...]]:
@@ -377,9 +387,7 @@ def series_colors(
     shades = sorted({shade for shade, _ in groups.values()})
     hues = sorted({hue for _, hue in groups.values()})
     # CPU precedes GPU: matching Ns share a hue, with CPU the lighter shade.
-    lightness = dict(zip(
-        shades, np.linspace(0.4, 0.0, len(shades)) if len(shades) > 1 else [0.0]
-    ))
+    positions = dict(zip(shades, np.linspace(0.0, 1.0, len(shades))))
     palette = (
         plt.get_cmap("tab10")(np.arange(len(hues)))[:, :3]
         if len(hues) <= 10
@@ -387,7 +395,10 @@ def series_colors(
     )
     base_colors = dict(zip(hues, palette))
     return {
-        label: tuple(base_colors[hue] + (1 - base_colors[hue]) * lightness[shade])
+        label: (
+            group_shade(base_colors[hue], positions[shade])
+            if len(shades) > 1 else tuple(base_colors[hue])
+        )
         for label, (shade, hue) in groups.items()
     }
 
