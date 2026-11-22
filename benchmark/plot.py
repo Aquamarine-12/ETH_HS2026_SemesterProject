@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import tomllib
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TypeAlias
 
@@ -25,12 +25,17 @@ from json_io import JsonObject, load_baseline, read_json
 plt.switch_backend("Agg")
 
 FloatArray: TypeAlias = NDArray[np.float64]
-METRICS = ("qps", "slowdown", "latency", "query-slowdown")
+METRICS = (
+    "total_qps", "per_query_latency", "total_slowdown", "per_query_slowdown",
+)
+GROUP_FIELDS = ("device", "cache", "query_order")
+PER_QUERY = ("per_query_latency", "per_query_slowdown")
+SLOWDOWN = ("total_slowdown", "per_query_slowdown")
 Y_LABELS = {
-    "qps": "Queries per second",
-    "slowdown": "Mean slowdown factor",
-    "latency": "Query latency (s)",
-    "query-slowdown": "Mean query slowdown factor",
+    "total_qps": "Total QPS (queries/s)",
+    "per_query_latency": "Per-query latency (s)",
+    "total_slowdown": "Total slowdown factor",
+    "per_query_slowdown": "Per-query slowdown factor",
 }
 
 
@@ -46,10 +51,23 @@ class PlotRun:
 
 @dataclass
 class PlotSettings:
-    """Selects queries and connection counts for per-query figures only."""
+    """Selects measurements, metrics, and dimensions for separate series."""
 
+    metrics: list[str] = field(default_factory=lambda: list(METRICS))
+    group_by: list[str] = field(default_factory=lambda: list(GROUP_FIELDS))
+    devices: list[str] | None = None
+    cache_modes: list[str] | None = None
+    seeds: list[str | int] | None = None
     queries: list[int] | None = None
     connections: list[int] | None = None
+
+
+def parse_order(value: str | int) -> str | int:
+    """Normalizes query-order filters without importing the execution core."""
+    try:
+        return int(value)
+    except ValueError:
+        return value.upper()
 
 
 def load_plot_settings(args: argparse.Namespace) -> PlotSettings:
@@ -60,10 +78,17 @@ def load_plot_settings(args: argparse.Namespace) -> PlotSettings:
             args.config.expanduser().read_text(encoding="utf-8")
         )
         values.update(document.get("plot", {}))
-    for name in ("queries", "connections"):
+    for name in (item.name for item in fields(PlotSettings)):
         if hasattr(args, name):
             values[name] = getattr(args, name)
-    return PlotSettings(**values)
+    settings = PlotSettings(**values)
+    if settings.seeds is not None:
+        settings.seeds = [parse_order(value) for value in settings.seeds]
+    for name, allowed in (("metrics", METRICS), ("group_by", GROUP_FIELDS)):
+        unknown = set(getattr(settings, name)) - set(allowed)
+        if unknown:
+            raise ValueError(f"Unknown plot {name}: {sorted(unknown)}")
+    return settings
 
 
 def load_runs(source: Path) -> list[PlotRun]:
@@ -82,7 +107,7 @@ def load_runs(source: Path) -> list[PlotRun]:
 
 def select_runs(runs: list[PlotRun], metric: str) -> list[PlotRun]:
     """Includes N=1 references for QPS and N>=2 comparisons for slowdown."""
-    if metric == "qps":
+    if metric == "total_qps":
         return [
             run
             for run in runs
@@ -92,7 +117,7 @@ def select_runs(runs: list[PlotRun], metric: str) -> list[PlotRun]:
                 and run.data["connections"] == 1
             )
         ]
-    if metric in ("slowdown", "query-slowdown"):
+    if metric in SLOWDOWN:
         return [
             run
             for run in runs
@@ -122,10 +147,8 @@ def attach_baseline(run: PlotRun) -> None:
             raise ValueError(f"Baseline {key} differs for {run.path}")
     if run.data.get("io_backend") != baseline_data.get("io_backend"):
         raise ValueError(f"Baseline io_backend differs for {run.path}")
-    if (run.data.get("warmup_streams", 0) > 0) != (
-        baseline_data.get("warmup_streams", 0) > 0
-    ):
-        raise ValueError(f"Baseline warmup mode differs for {run.path}")
+    if run.data.get("warmup_streams", 0) != baseline_data.get("warmup_streams", 0):
+        raise ValueError(f"Baseline warmup stream count differs for {run.path}")
     run.baseline = load_baseline(path)
     recorded = run.data["baseline_latencies_s"]
     if (
@@ -139,36 +162,79 @@ def attach_baseline(run: PlotRun) -> None:
             run.baseline[query]
 
 
-def filter_query_runs(
+def dimension_value(run: PlotRun, name: str) -> str:
+    """Reads one comparison dimension from recorded result metadata."""
+    return {
+        "device": run.data["device"],
+        "cache": "hot" if run.data.get("warmup_streams", 0) > 0 else "cold",
+        "query_order": str(run.data["seed"]),
+    }[name]
+
+
+def filter_dimensions(
+    runs: list[PlotRun], settings: PlotSettings
+) -> list[PlotRun]:
+    """Selects devices, cache modes, and orders before metric selection."""
+    for name, requested in (
+        ("device", settings.devices), ("cache", settings.cache_modes),
+        ("query_order", settings.seeds),
+    ):
+        if requested is None:
+            continue
+        wanted = {str(value) for value in requested}
+        available = {dimension_value(run, name) for run in runs}
+        missing = wanted - available
+        if missing:
+            raise ValueError(f"Unavailable {name} values: {sorted(missing)}")
+        runs = [run for run in runs if dimension_value(run, name) in wanted]
+    if not runs:
+        raise ValueError("No measurements match the plot filters")
+    return runs
+
+
+def validate_grouping(runs: list[PlotRun], settings: PlotSettings) -> None:
+    """Requires varying conditions to be explicitly represented as series."""
+    for name in GROUP_FIELDS:
+        values = {dimension_value(run, name) for run in runs}
+        if name not in settings.group_by and len(values) > 1:
+            raise ValueError(
+                f"Multiple {name} values selected: {sorted(values)}; "
+                f"add {name} to group_by or filter to one value"
+            )
+
+
+def filter_connections(
     runs: list[PlotRun], settings: PlotSettings, metric: str
 ) -> list[PlotRun]:
-    """Selects per-query runs and rejects unavailable counts or query data."""
-    if settings.connections is not None:
-        groups: dict[str, set[int]] = defaultdict(set)
-        for run in runs:
-            groups[group_label(run, False)].add(run.data["connections"])
-        for label, counts in groups.items():
-            missing = set(settings.connections) - counts
+    """Applies connection selection to every metric, retaining reference files."""
+    if settings.connections is None:
+        return runs
+    wanted = set(settings.connections)
+    if metric in SLOWDOWN:
+        wanted = {count for count in wanted if count >= 2}
+    groups: dict[str, set[int]] = defaultdict(set)
+    for run in runs:
+        groups[group_label(run, settings)].add(run.data["connections"])
+    for label, counts in groups.items():
+        missing = wanted - counts
+        if missing:
+            raise ValueError(
+                f"{metric}: unavailable connections {sorted(missing)} for {label}"
+            )
+    return [run for run in runs if run.data["connections"] in wanted]
+
+
+def validate_queries(runs: list[PlotRun], queries: list[int]) -> None:
+    """Requires every selected query in every measured stream."""
+    for run in runs:
+        for stream in run.data["streams"]:
+            available = {int(q) for q in stream["query_latencies_s"]}
+            missing = set(queries) - available
             if missing:
                 raise ValueError(
-                    f"{metric}: unavailable connections {sorted(missing)} "
-                    f"for {label}"
+                    f"Unavailable queries {sorted(missing)} in {run.path}, "
+                    f"stream {stream['stream_id']}"
                 )
-        runs = [
-            run for run in runs
-            if run.data["connections"] in settings.connections
-        ]
-    if settings.queries is not None:
-        for run in runs:
-            for stream in run.data["streams"]:
-                available = {int(q) for q in stream["query_latencies_s"]}
-                missing = set(settings.queries) - available
-                if missing:
-                    raise ValueError(
-                        f"{metric}: unavailable queries {sorted(missing)} "
-                        f"in {run.path}, stream {stream['stream_id']}"
-                    )
-    return runs
 
 
 def prepare_runs(
@@ -176,17 +242,19 @@ def prepare_runs(
 ) -> list[PlotRun]:
     """Selects and checks all data needed by a figure before rendering it."""
     selected = select_runs(runs, metric)
-    if metric == "latency" and settings.connections is not None:
+    if metric == "per_query_latency" and settings.connections is not None:
         # Explicitly selecting N=1 may use its otherwise unplotted reference.
         selected = [
             run for run in runs
             if run.included or run.data["role"] == "baseline"
         ]
-    if metric in ("latency", "query-slowdown"):
-        selected = filter_query_runs(selected, settings, metric)
+    selected = filter_connections(selected, settings, metric)
     if not selected:
         raise ValueError(f"No runs available for {metric}")
-    if metric in ("slowdown", "query-slowdown"):
+    validate_grouping(selected, settings)
+    if metric in PER_QUERY and settings.queries is not None:
+        validate_queries(selected, settings.queries)
+    if metric in SLOWDOWN:
         for run in selected:
             if run.baseline is None:
                 attach_baseline(run)
@@ -227,10 +295,20 @@ def bootstrap_median(
     return medians, low, high
 
 
-def group_label(run: PlotRun, per_query: bool) -> str:
-    """Labels backend series and optionally their connection count."""
+def group_label(
+    run: PlotRun, settings: PlotSettings, per_query: bool = False
+) -> str:
+    """Builds a series label from selected grouping dimensions."""
     data = run.data
-    label = f"{Path(data['database']).stem}: {data['device']}"
+    parts = []
+    for name in settings.group_by:
+        value = dimension_value(run, name)
+        if name == "device":
+            value = value.upper()
+        elif name == "cache":
+            value += " cache"
+        parts.append(value)
+    label = f"{Path(data['database']).stem}: {', '.join(parts) or 'measurements'}"
     if data.get("io_backend") is not None:
         label += f" ({data['io_backend']})"
     if per_query:
@@ -239,26 +317,28 @@ def group_label(run: PlotRun, per_query: bool) -> str:
 
 
 def make_series(
-    runs: list[PlotRun], metric: str, queries: list[int] | None = None
+    runs: list[PlotRun], metric: str, settings: PlotSettings
 ) -> dict[str, tuple[list[int], FloatArray]]:
     """Builds sample-by-parameter matrices for paired resampling."""
-    per_query = metric in ("latency", "query-slowdown")
+    per_query = metric in PER_QUERY
     groups: dict[str, dict[int, dict[int, float]]] = defaultdict(dict)
     for run in runs:
-        label = group_label(run, per_query)
+        label = group_label(run, settings, per_query)
         sample = run.data["sample"]
         row = groups[label].setdefault(sample, {})
         if per_query:
             if row:
                 raise ValueError(f"Duplicate sample {sample}: {label}")
-            row.update(query_values(run, metric == "query-slowdown", queries))
+            row.update(query_values(
+                run, metric == "per_query_slowdown", settings.queries
+            ))
         else:
             count = run.data["connections"]
             if count in row:
                 raise ValueError(
                     f"Duplicate sample {sample}, N={count}: {label}"
                 )
-            key = "qps" if metric == "qps" else "mean_slowdown"
+            key = "qps" if metric == "total_qps" else "mean_slowdown"
             row[count] = run.data[key]
     series = {}
     for label, samples in groups.items():
