@@ -1,0 +1,16 @@
+# SF10 on both backends, with three samples at every connection count.
+# Paths are relative to this file.
+# Each sample/backend/cache/order combination gets its own N=1 baseline.
+[run]
+db = "data/sf10.duckdb"
+device = "cpu"
+connections = 2
+sirius_extension = "~/.local/lib/sirius/sirius.duckdb_extension"
+results_dir = "results"
+
+[sweep]
+devices = ["cpu", "gpu"]
+warmup_streams = [5]  # Cold cache (0 warmup streams), hot cache (5 streams).
+seeds = ["ASC"]
+connections = [2, 3]
+samples = 2
