@@ -7,28 +7,28 @@ with `sweep.py`, then generate Matplotlib figures with `plot.py`.
 ## Quick start
 
 Run these commands from this directory, inside your Python environment.
-`experiment-sf10.toml` selects the cluster's SF10 database and both backends,
+`sf10-benchmarks.toml` selects the cluster's SF10 database and both backends,
 with five samples and connection counts 2 through 10. Its single-run default
 is CPU execution, and it includes the installed Sirius extension path. Edit it for your installation; all TOML paths are relative to that file.
 
 ```bash
 # Only if you have not generated this database already.
-python benchmark.py generate-table --config experiment-sf10.toml --scale-factor 10
+python benchmark.py generate-table --config sf10-benchmarks.toml --scale-factor 10
 
 # One isolated reference, followed by one two-connection comparison.
-python benchmark.py benchmark --config experiment-sf10.toml --connections 1 \
+python benchmark.py benchmark --config sf10-benchmarks.toml --connections 1 \
   --output results/cpu-baseline.json
-python benchmark.py benchmark --config experiment-sf10.toml \
+python benchmark.py benchmark --config sf10-benchmarks.toml \
   --baseline-json results/cpu-baseline.json
 
 # Five samples per backend, each with its own baseline and N=2 through N=10.
-python sweep.py --config experiment-sf10.toml
+python sweep.py --config sf10-benchmarks.toml
 
 # Or a short trial: three samples, N=1 and N=2 only.
-python sweep.py --config experiment-sf10.toml --samples 3 --connections 1 2
+python sweep.py --config sf10-benchmarks.toml --samples 3 --connections 1 2
 
 # GPU I/O workaround for the tested cluster Sirius binary; CPU is unchanged.
-python sweep.py --config experiment-sf10.toml --io-backend kvikio \
+python sweep.py --config sf10-benchmarks.toml --io-backend kvikio \
   --samples 3 --connections 2 4
 
 # Use the index path printed by sweep.py.
@@ -97,7 +97,7 @@ automatically, regardless of a single-run baseline configured in TOML.
 back to the corresponding `[run]` setting. Explicit CLI lists override TOML:
 
 ```bash
-python sweep.py --config experiment-sf10.toml --warmup-streams 0 5 \
+python sweep.py --config sf10-benchmarks.toml --warmup-streams 0 5 \
   --seed ASC DESC ASC-DESC 42
 ```
 
@@ -180,7 +180,7 @@ Use a warm baseline for warm measurements and a cold baseline for cold ones.
 For example, to enable warmup throughout a sweep:
 
 ```bash
-python sweep.py --config experiment-sf10.toml --warmup-streams 5
+python sweep.py --config sf10-benchmarks.toml --warmup-streams 5
 ```
 
 The benchmark CLI keeps `--warmup` / `--no-warmup` as enable/disable controls
@@ -205,72 +205,108 @@ experiment is independent of the active modules and remains unchanged.
 Each result contains effective run metadata, QPS, elapsed seconds, optional
 mean slowdown, and every stream's query order and latencies. Baseline links
 are relative to the result file. Sweeps also write effective `settings.json`
-and an `index.json` linking all samples, including their baseline associations.
-Copy the whole sweep directory to plot it on another machine; plotting needs
-NumPy and Matplotlib, but no DuckDB, Sirius, or GPU.
+and an `index.json` linking all samples and references. Copy the whole sweep
+directory to plot elsewhere; plotting needs NumPy and Matplotlib, not DuckDB
+or a GPU. Shared warm batches may have the same process ID across several Ns;
+plot aggregation uses the recorded sample IDs and references.
 
-The plotter produces PNG and PDF figures for QPS versus N, mean slowdown
-versus N, and per-query latency/slowdown. Connection-count plots use median
-curves with 95% bootstrap confidence bars. Per-query figures use separate
-backend panels and unconnected median points, with connection counts placed
-side by side within each query group. Their confidence bars use the same
-bootstrap method. Streams are first summarized
-within each run; bootstrap resampling preserves sample blocks and references.
+The four plotting metrics and output basenames are:
 
-QPS plots always include the N=1 baseline, even if the sweep starts at N=2.
-Slowdown plots show only N>=2, with a reference line at factor 1. Per-query
-latency plots retain the connection counts requested by the sweep.
-Required missing baseline files or data cause an error, with no substituted
-values or dropped measurements. To plot baseline-only results, request:
+| Metric | Figure |
+| --- | --- |
+| `total_qps` | Total queries per second versus connection count |
+| `per_query_latency` | Latency for each selected query |
+| `total_slowdown` | Mean slowdown factor versus connection count |
+| `per_query_slowdown` | Slowdown factor for each selected query |
 
-```bash
-python plot.py path/to/index.json --metrics qps latency
-```
+All four are produced by default, each as PNG and PDF directly in one `plots/`
+directory beside the source JSON. For example, `total_qps.png` and
+`total_qps.pdf` compare all selected series on the same axes. There are no
+automatic cache/order subdirectories. `--output DIR` selects another folder.
 
-A single result JSON is also accepted; it supplies a single measured sample.
-When an index contains multiple cache/order combinations, plotting writes
-separate figures under `plots/warmup-<count>/seed-<order>/`. A single
-combination keeps the existing output layout.
-Use `--output path/to/figures` to choose the figure directory.
-See [RESULTS.md](RESULTS.md) for the JSON fields, formula, and output layout.
+Each run first contributes one stream-averaged value per query. Figures show
+medians across samples and 95% bootstrap confidence bars, preserving whole
+sample rows and their baseline associations. Total metrics use connected
+curves; per-query figures use unconnected, horizontally offset series for
+condition/connection combinations. Slowdown is a factor, with a reference
+line at 1. The renamed plotting metrics read the existing `qps`,
+`mean_slowdown`, and per-query JSON fields.
 
-Figure titles show hot or cold cache from whether `warmup_streams` is positive.
-The subtitle shows CPU/GPU models detected on the measurement node by
-`hardware.py` and saved with each new result. Older results without those
-fields show "not recorded". Run `python hardware.py` for a quick hardware summary.
+### Select and compare measurements
 
-### Select queries and connection counts
-
-Limit the per-query figures to a smaller subset:
-
-```bash
-python plot.py path/to/index.json --queries 1 3 6 11 18 \
-  --query-connections 2 5 10 --output path/to/plots-selected
-```
-
-Or add an optional section to your experiment TOML (a separate plotting TOML
-also works):
+`[plot]` config values select the measurements and define separate series.
+For CPU/GPU with cold/hot cache, giving four lines at one query order:
 
 ```toml
 [plot]
-queries = [1, 3, 6, 11, 18]
-connections = [2, 5, 10]
+metrics = ["total_qps"]
+devices = ["cpu", "gpu"]
+cache_modes = ["cold", "hot"]
+seeds = ["ASC"]
+group_by = ["device", "cache"]
+# connections = [1, 2, 3, 4, 5]
 ```
+
+The supplied `plot-comparison.toml` contains this example:
 
 ```bash
-python plot.py path/to/index.json --config experiment-sf10.toml
+python plot.py path/to/index.json --config plot-comparison.toml
 ```
 
-Explicit CLI selections override the corresponding TOML values. Omit either
-selection to keep that dimension unfiltered. Queries are displayed in numeric
-order. These settings affect only `latency` and `query-slowdown`: QPS keeps
-its full connection range including N=1, and overall slowdown keeps all N>=2.
-Slowdown selections must also use N>=2. For latency, explicitly selecting N=1
-can use its reference result even when the sweep did not request N=1.
+For two GPU cold/hot lines, set `devices = ["gpu"]` and
+`group_by = ["cache"]`. For query-order comparisons, select multiple `seeds`
+and include `query_order` in `group_by`. Seeds accept `ASC`, `DESC`,
+`ASC-DESC`, or integer shuffle seeds. Cache mode is derived from the recorded
+warmup stream count: zero is cold, a positive count is hot.
 
-Unavailable query IDs or connection counts raise an error before any figures
-are written. Each backend must contain the requested counts. Filtering changes
-only what is displayed; the measurement files and overall metrics are unchanged.
+| Config field | CLI option | Effect |
+| --- | --- | --- |
+| `metrics` | `--metrics` | Metrics to generate; default: all four |
+| `group_by` | `--group-by` | Separate series by `device`, `cache`, `query_order`; default: all three |
+| `devices` | `--devices` | Select `cpu`, `gpu`, or both |
+| `cache_modes` | `--cache-modes` | Select `cold`, `hot`, or both |
+| `seeds` | `--seeds` | Select named query orders or integer shuffle seeds |
+| `connections` | `--connections` | Filter connection counts for every metric |
+| `queries` | `--queries` | Filter query IDs for per-query metrics |
+
+CLI selections override the corresponding TOML values. Omitted filters keep
+all available values. If a selected dimension has multiple values, include
+it in `group_by` so those conditions are separate series. Otherwise, filter
+it to one value. Each selected connection count adds a series to per-query
+figures; total figures use connection count on the x-axis.
+
+For example, select GPU cache comparisons with three queries and two Ns:
+
+```bash
+python plot.py path/to/index.json --devices gpu --cache-modes cold hot \
+  --seeds ASC --group-by cache --connections 2 5 --queries 1 6 22
+```
+
+`--query-connections` remains an alias for `--connections`; both now filter
+all four metrics. Query filters affect only the two per-query metrics.
+By default, total QPS includes N=1 baselines even when the sweep requested
+only N>1. An explicit connection filter controls whether N=1 is displayed.
+Per-query latency includes an otherwise unplotted baseline when N=1 is
+explicitly selected. Both slowdown metrics show only N>=2; N=1 is ignored
+in their connection selection and remains available as the reference.
+
+Missing requested data, ambiguous grouping, incomplete sample blocks, and
+incompatible references cause errors before any figures are written. Baseline
+checks include exact warmup count, backend, database, query order, engine,
+fallback/I/O metadata, and saved latencies. An explicitly supplied reference
+may come from an earlier sample, as supported by the benchmark CLI.
+
+A single result JSON is also accepted. For a baseline-only source, select
+metrics that do not need a slowdown comparison:
+
+```bash
+python plot.py path/to/baseline.json --metrics total_qps per_query_latency
+```
+
+Figure titles show cache mode and query orders. Their hardware subtitle uses
+CPU/GPU models saved on the measurement node; it never detects the plotting
+machine's hardware. Older results without these fields show "not recorded".
+See [RESULTS.md](RESULTS.md) for the JSON fields and aggregation formula.
 
 ## Code map
 

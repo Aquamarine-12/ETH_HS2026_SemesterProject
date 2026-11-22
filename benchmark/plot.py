@@ -138,7 +138,6 @@ def attach_baseline(run: PlotRun) -> None:
     for key in (
         "database",
         "device",
-        "sample",
         "duckdb_version",
         "cpu_fallback",
         "seed",
@@ -147,7 +146,9 @@ def attach_baseline(run: PlotRun) -> None:
             raise ValueError(f"Baseline {key} differs for {run.path}")
     if run.data.get("io_backend") != baseline_data.get("io_backend"):
         raise ValueError(f"Baseline io_backend differs for {run.path}")
-    if run.data.get("warmup_streams", 0) != baseline_data.get("warmup_streams", 0):
+    if run.data.get("warmup_streams", 0) != baseline_data.get(
+        "warmup_streams", 0
+    ):
         raise ValueError(f"Baseline warmup stream count differs for {run.path}")
     run.baseline = load_baseline(path)
     recorded = run.data["baseline_latencies_s"]
@@ -206,7 +207,7 @@ def validate_grouping(runs: list[PlotRun], settings: PlotSettings) -> None:
 def filter_connections(
     runs: list[PlotRun], settings: PlotSettings, metric: str
 ) -> list[PlotRun]:
-    """Applies connection selection to every metric, retaining reference files."""
+    """Filters every metric's connection counts while retaining references."""
     if settings.connections is None:
         return runs
     wanted = set(settings.connections)
@@ -219,7 +220,8 @@ def filter_connections(
         missing = wanted - counts
         if missing:
             raise ValueError(
-                f"{metric}: unavailable connections {sorted(missing)} for {label}"
+                f"{metric}: unavailable connections {sorted(missing)} "
+                f"for {label}"
             )
     return [run for run in runs if run.data["connections"] in wanted]
 
@@ -308,7 +310,8 @@ def group_label(
         elif name == "cache":
             value += " cache"
         parts.append(value)
-    label = f"{Path(data['database']).stem}: {', '.join(parts) or 'measurements'}"
+    comparison = ", ".join(parts) or "measurements"
+    label = f"{Path(data['database']).stem}: {comparison}"
     if data.get("io_backend") is not None:
         label += f" ({data['io_backend']})"
     if per_query:
@@ -381,58 +384,54 @@ def draw_query_panel(
     axes: Axes,
     runs: list[PlotRun],
     metric: str,
-    queries: list[int] | None = None,
+    settings: PlotSettings,
 ) -> None:
-    """Places connection-count medians side by side within each query group."""
-    counts = sorted({run.data["connections"] for run in runs})
-    query_ids = sorted(set(queries)) if queries is not None else sorted({
-        query
-        for run in runs
-        for query in run.data["streams"][0]["query_order"]
+    """Places condition/connection series side by side within each query."""
+    series = make_series(runs, metric, settings)
+    axes.set_prop_cycle(color=plt.get_cmap("tab20", len(series)).colors)
+    query_ids = sorted({
+        query for columns, _ in series.values() for query in columns
     })
     centers = {query: index for index, query in enumerate(query_ids)}
-    spacing = 0.8 / len(counts)
-    for index, count in enumerate(counts):
-        subset = [run for run in runs if run.data["connections"] == count]
-        ((_, (columns, values)),) = make_series(subset, metric, queries).items()
-        offset = (index - (len(counts) - 1) / 2) * spacing
+    spacing = 0.8 / len(series)
+    for index, (label, (columns, values)) in enumerate(series.items()):
+        offset = (index - (len(series) - 1) / 2) * spacing
         positions = np.array([centers[query] + offset for query in columns])
-        draw_series(axes, f"N={count}", positions, values, connected=False)
+        draw_series(axes, label, positions, values, connected=False)
     axes.set_xticks(range(len(query_ids)), [f"Q{query}" for query in query_ids])
     axes.set_xlim(-0.6, len(query_ids) - 0.4)
     axes.set_ylabel(Y_LABELS[metric])
     axes.grid(axis="y", alpha=0.2)
-    axes.legend(ncols=min(5, len(counts)), fontsize=9)
-    if metric == "query-slowdown":
+    axes.legend(
+        ncols=min(3, len(series)), fontsize=8,
+        loc="upper center", bbox_to_anchor=(0.5, -0.16),
+    )
+    if metric == "per_query_slowdown":
         axes.axhline(1, color="grey", linestyle="--", linewidth=1)
 
 
 def query_figure(
-    runs: list[PlotRun], metric: str, queries: list[int] | None = None
+    runs: list[PlotRun], metric: str, settings: PlotSettings
 ) -> plt.Figure:
-    """Separates backends into panels with grouped query medians and CIs."""
-    groups: dict[str, list[PlotRun]] = defaultdict(list)
-    for run in runs:
-        groups[group_label(run, per_query=False)].append(run)
-    figure, axes = plt.subplots(
-        len(groups), 1, figsize=(16, 4 * len(groups)),
-        sharex=True, squeeze=False, layout="constrained",
-    )
-    for (label, subset), panel in zip(groups.items(), axes[:, 0]):
-        draw_query_panel(panel, subset, metric, queries)
-        panel.set_title(label)
-    axes[-1, 0].set_xlabel("TPC-H query")
+    """Compares all selected series on the same per-query axes."""
+    figure, axes = plt.subplots(figsize=(16, 5), layout="constrained")
+    draw_query_panel(axes, runs, metric, settings)
+    axes.set_xlabel("TPC-H query")
     return figure
 
 
-def connection_figure(runs: list[PlotRun], metric: str) -> plt.Figure:
+def connection_figure(
+    runs: list[PlotRun], metric: str, settings: PlotSettings
+) -> plt.Figure:
     """Plots throughput or slowdown against connection count."""
     figure, axes = plt.subplots(figsize=(9, 5), layout="constrained")
-    for label, (columns, values) in make_series(runs, metric).items():
+    series = make_series(runs, metric, settings)
+    axes.set_prop_cycle(color=plt.get_cmap("tab20", len(series)).colors)
+    for label, (columns, values) in series.items():
         draw_series(axes, label, np.array(columns, dtype=float), values)
     axes.set_xlabel("Connections")
     axes.set_ylabel(Y_LABELS[metric])
-    if metric == "slowdown":
+    if metric == "total_slowdown":
         axes.axhline(1, color="grey", linestyle="--", linewidth=1)
     axes.set_xticks(sorted({run.data["connections"] for run in runs}))
     axes.grid(alpha=0.2)
@@ -451,13 +450,14 @@ def add_figure_title(
         cache = "Hot cache" if True in modes else "Cold cache"
     else:
         cache = "Hot and cold cache"
+    devices = "/".join(sorted({run.data["device"].upper() for run in runs}))
     orders = ", ".join(sorted({str(run.data["seed"]) for run in runs}))
     hardware = []
     for label, key in (("CPU", "cpu_model"), ("GPU", "gpu_model")):
         models = sorted({run.data[key] for run in runs if run.data.get(key)})
         hardware.append(f"{label}: {', '.join(models) or 'not recorded'}")
     figure.suptitle(
-        f"{Y_LABELS[metric]} — {cache} — order {orders}\n"
+        f"{Y_LABELS[metric]} — {devices} — {cache} — order {orders}\n"
         f"{' | '.join(hardware)}\n"
         "Median across samples; bars: 95% bootstrap CI",
         fontsize=12,
@@ -473,10 +473,10 @@ def render_metric(
     """Renders one metric into shareable PNG and PDF files."""
     settings = settings if settings is not None else PlotSettings()
     runs = prepare_runs(runs, metric, settings)
-    per_query = metric in ("latency", "query-slowdown")
+    per_query = metric in PER_QUERY
     figure = (
-        query_figure(runs, metric, settings.queries) if per_query
-        else connection_figure(runs, metric)
+        query_figure(runs, metric, settings) if per_query
+        else connection_figure(runs, metric, settings)
     )
     add_figure_title(figure, runs, metric)
     output.mkdir(parents=True, exist_ok=True)
@@ -496,23 +496,32 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         help="Query IDs to show in per-query figures only",
     )
     parser.add_argument(
-        "--query-connections", dest="connections", nargs="+", type=int,
+        "--connections", "--query-connections", dest="connections",
+        nargs="+", type=int,
         default=argparse.SUPPRESS,
-        help="Connection counts to show in per-query figures only",
+        help="Connection counts to show in every metric",
     )
     parser.add_argument(
-        "--metrics", nargs="+", choices=METRICS, default=METRICS
+        "--metrics", nargs="+", choices=METRICS, default=argparse.SUPPRESS
+    )
+    parser.add_argument(
+        "--group-by", nargs="*", choices=GROUP_FIELDS,
+        default=argparse.SUPPRESS,
+        help="Dimensions producing separate series (default: all three)",
+    )
+    parser.add_argument(
+        "--devices", nargs="+", choices=("cpu", "gpu"),
+        default=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--cache-modes", nargs="+", choices=("cold", "hot"),
+        default=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--seeds", nargs="+", type=parse_order, default=argparse.SUPPRESS,
+        help="Query orders: ASC, DESC, ASC-DESC, or integer shuffle seeds",
     )
     return parser.parse_args(argv)
-
-
-def split_runs(runs: list[PlotRun]) -> dict[tuple[int, str], list[PlotRun]]:
-    """Separates cache/order combinations before sample aggregation."""
-    groups: dict[tuple[int, str], list[PlotRun]] = defaultdict(list)
-    for run in runs:
-        key = run.data.get("warmup_streams", 0), str(run.data["seed"])
-        groups[key].append(run)
-    return groups
 
 
 def main() -> None:
@@ -520,20 +529,14 @@ def main() -> None:
     args = parse_arguments()
     settings = load_plot_settings(args)
     source = args.source.expanduser().resolve()
-    runs = load_runs(source)
-    groups = split_runs(runs)
+    runs = filter_dimensions(load_runs(source), settings)
     output = args.output or source.parent / "plots"
     # Reject missing selections or references before writing partial figures.
-    for subset in groups.values():
-        for metric in args.metrics:
-            prepare_runs(subset, metric, settings)
-    for (warmup_streams, seed), subset in groups.items():
-        directory = (
-            output / f"warmup-{warmup_streams}" / f"seed-{seed}"
-            if len(groups) > 1 else output
-        )
-        for metric in args.metrics:
-            render_metric(subset, metric, directory, settings)
+    for metric in settings.metrics:
+        selected = prepare_runs(runs, metric, settings)
+        make_series(selected, metric, settings)
+    for metric in settings.metrics:
+        render_metric(runs, metric, output, settings)
     print(f"Figures: {output}")
 
 

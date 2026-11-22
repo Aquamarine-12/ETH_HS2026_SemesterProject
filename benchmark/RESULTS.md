@@ -133,49 +133,53 @@ explicit output file can remain after failure; use new filenames/directories.
 
 ## Plot aggregation
 
-Warmup counts and query orders are separated before aggregating samples. A mixed
-index produces separate figure sets in `warmup-<count>/seed-<order>/`
-subdirectories; a single combination keeps the original figure paths.
+The plotting metrics are `total_qps`, `per_query_latency`, `total_slowdown`,
+and `per_query_slowdown`. They read the existing JSON fields; the producer
+still records `qps`, `mean_slowdown`, and each stream's query latencies.
 
-For QPS and mean slowdown, every independent repeated run contributes one
-value at its connection count. Per-query latency plots first average stream
-latencies within each run; per-query slowdown plots average stream latency
-ratios against that run's reference. Those summaries then contribute one
-value per sample/query, rather than treating streams as independent samples.
+Plot settings filter devices, cache modes, query orders, connection counts,
+and query IDs. Connection filters apply to all metrics; query filters apply
+to per-query metrics. `group_by` selects separate series for `device`,
+`cache`, and `query_order`. A dimension with multiple selected values must
+be grouped. Omitted filters keep all available measurements, and grouping
+defaults to all three dimensions. Cold means zero warmup streams; hot means
+a positive count.
+
+All selected comparison series share one figure per metric. Every PNG/PDF
+is written directly to the output folder with its metric name, such as
+`total_qps.png`; plotting no longer creates warmup/order subdirectories.
+Per-query figures have one point series per condition/connection combination,
+with horizontal offsets within each query and no connecting lines. Total
+metrics use connection count as the x-axis.
+
+For total QPS and slowdown, each repeated run contributes its recorded value.
+Per-query latency first averages stream latencies within a run. Per-query
+slowdown first averages each stream's latency ratio against that run's
+reference. These summaries contribute one value per sample/query, rather
+than treating streams as independent samples.
 
 The plotter calculates medians and percentile-bootstrap 95% confidence
 intervals using 10,000 resamples and random seed 0. Sample rows are resampled
-as complete blocks, preserving parameter columns and their existing baseline
-associations. The same procedure applies across query columns. A lone sample
-is drawn without a confidence bar. Per-query figures have one backend per
-panel; connection-count points are offset horizontally within each query
-group, without connecting lines. Overall QPS/slowdown figures retain curves.
+as complete blocks, preserving parameter columns and baseline associations.
+The same procedure applies across query columns. One sample is drawn without
+a confidence bar. Missing sample columns and duplicate sample/parameter
+entries raise errors before figure output.
 
-For per-query figures, `--queries` selects query IDs and `--query-connections`
-selects connection counts. Optional TOML `[plot].queries` and
-`[plot].connections` provide the same settings via `--config`; explicit CLI
-values take precedence. An omitted dimension retains its normal selection.
-Selected query columns retain their original within-run averages and paired
-sample resampling. Connection filters retain each selected run's reference.
-Overall QPS and slowdown figures ignore these per-query filters.
+Both slowdown metrics require a real N=1 reference with matching backend,
+database, query order, engine version, fallback/I/O settings, and exact warmup
+stream count. Missing counts default to zero for older cold results. Saved
+baseline latencies must match the referenced file. References may come from
+an earlier sample when explicitly selected through the benchmark CLI. Shared
+warm-batch process IDs do not change grouping or sample aggregation.
 
-Missing requested counts for a backend or requested query data in a selected
-stream cause an error before figure output. Slowdown figures still require
-N>=2. Explicit N=1 latency selections can use the saved baseline record.
+Baseline-role entries are excluded from slowdown figures, and both slowdown
+metrics show only N>=2 with a factor-1 reference line. Total QPS includes
+N=1 references by default. An explicit connection filter controls all metric
+points: N=1 is shown for QPS/latency when selected, remains usable as a
+reference, and is omitted from the slowdown metrics.
 
-Slowdown plots require the referenced file and saved baseline latencies to
-agree, with matching backend, database, sample, seed, engine version,
-and fallback/I/O settings. Both files must agree on whether the warmup stream
-count is positive. Missing counts default to zero (cold). Different positive
-counts and warmup query orders do not invalidate a baseline comparison.
-Older result pairs without an I/O field remain
-plottable together, but cannot establish a match with a newly recorded GPU
-I/O backend. GPU labels include the recorded I/O backend to keep separate
-configurations in separate series. Missing required data, incomplete sample blocks, or
-missing files raise an error. Values are never filled with zero, and broken
-comparisons are never silently omitted. Baseline-role entries are explicitly
-excluded from slowdown plots. All slowdown plots show only N>=2, with a
-reference line at factor 1. QPS plots always include N=1 references.
+CLI options override `[plot]` TOML fields. The README lists each filter and
+includes the CPU/GPU cold/hot and GPU-only comparison examples.
 
 ## Current scope
 

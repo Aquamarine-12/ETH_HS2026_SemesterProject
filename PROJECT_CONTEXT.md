@@ -583,3 +583,40 @@ one warmup per shared session, failure cleanup, sweep-only progress, external
 baseline reuse (including explicit N=1), exact-count rejection before setup,
 and preserved references. External GPU batch YAML/capacity checks passed with
 a mocked Sirius runtime. Plotting code was not edited.
+
+## Update: 2026-11-22 dynamic plot comparisons
+
+The user approved renaming plotting metrics and basenames to `total_qps`,
+`per_query_latency`, `total_slowdown`, and `per_query_slowdown`. These read
+the existing result JSON fields, including the other agent's shared warm
+batches. No execution, benchmark CLI, sweep, or JSON producer changes were
+needed. Exact baseline warmup-count validation now agrees with the current
+JSON loader. An external reference may be from an earlier sample; sample
+number is no longer incorrectly treated as a baseline compatibility setting.
+
+`[plot]` supports `metrics`, `group_by`, `devices`, `cache_modes`, `seeds`,
+`connections`, and `queries`. CLI overrides TOML. Defaults include all four
+metrics, all available filter values, and all three grouping dimensions:
+`device`, `cache`, and `query_order`. Varying dimensions must be grouped or
+filtered to one value. Warmup count determines cold/hot; there is no new
+warmup boolean. Connection filters apply to every metric, including total
+QPS. Query filters apply to per-query metrics. N=1 remains available as a
+reference even when filtered out of displayed points; slowdown plots remain
+N>=2. `--query-connections` is an alias for the global `--connections` filter.
+
+Every selected series shares one figure per metric, saved directly in the
+output folder as PNG and PDF. Per-query series additionally distinguish N
+using unconnected, horizontally offset points. The old cache/order plot
+subdirectories are no longer generated. Median and bootstrap calculations,
+saved result paths, raw measurements, and hardware subtitles are preserved.
+`benchmark/plot-comparison.toml` provides the four-line CPU/GPU cold/hot QPS
+example. Filtering GPU and grouping cache gives the two-line alternative.
+
+Verification used real PNG/PDF rendering and synthetic comparison fixtures
+covering both examples, query-order comparisons, global connection/query
+filters, sample aggregation, CIs, CLI/TOML precedence, and error preflight.
+A real SF0.01 CPU sweep with 24 measurements verified shared warm-batch
+outputs, single-result and baseline-only sources, and an external warm-batch
+reference from another sample. GPU execution was not exercised. Hashes
+confirmed core.py, cli.py, sweep.py, benchmark.py, json_io.py, and hardware.py
+were unchanged from the other agent's implementation.
