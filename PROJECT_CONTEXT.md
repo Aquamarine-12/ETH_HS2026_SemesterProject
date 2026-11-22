@@ -489,3 +489,32 @@ Verification: an SF0.01 CPU sweep covered both cache modes, four query orders,
 and N=1/N=2 in 16 fresh processes. Baseline associations, unique paths, counts,
 and metrics passed. Plot partitioning/aggregation/dispatch checks passed without
 rendering figures. A byte-level hash confirmed `core.py` was unchanged.
+
+## Update: 2026-11-22 one internal warmup count
+
+The user authorized replacing the internal warmup boolean with a single
+`warmup_streams` count. Zero means cold cache; a positive count runs that many
+shuffled 22-query warmup streams. The default is zero in active settings,
+CLI help, result readers, and the SF10 example configuration.
+
+The standalone benchmark CLI still has `--warmup` / `--no-warmup` and
+`--warmup-streams`. CLI settings loading resolves them to a single count:
+without `--warmup`, the effective count is zero; with it, the configured count
+is used (still zero unless set explicitly). Internal run settings and new
+settings/index/result JSON no longer store a warmup boolean.
+
+Sweeps use `[sweep].warmup_streams` integer lists instead of `cache_modes`;
+`[0, 5]` sweeps cold and warm cache. CLI `--warmup-streams 0 5` overrides that
+list. The provided TOML defaults to `[0]`. Each count/order combination has
+its own baseline and `warmup-<count>/seed-<order>/` result/plot directories,
+including distinct directories for different positive counts. Cache titles
+and baseline mode checks derive hot/cold from whether the count is positive.
+Previous result JSON with a stream count remains readable; a missing count
+defaults to zero. The frozen profiling experiment remains unchanged.
+
+Verification passed on local DuckDB 1.5.6: benchmark CLI normalization and
+actual warmup worker counts; default cold execution; and a 12-process SF0.01
+CPU sweep with counts 0/2/3, two query orders, and N=1/N=2. References, metrics,
+single-field JSON, plot aggregation/dispatch, and derived hot/cold titles
+passed. Sirius admission was checked with a mock; GPU runtime and figure
+rendering were not exercised.

@@ -122,7 +122,9 @@ def attach_baseline(run: PlotRun) -> None:
             raise ValueError(f"Baseline {key} differs for {run.path}")
     if run.data.get("io_backend") != baseline_data.get("io_backend"):
         raise ValueError(f"Baseline io_backend differs for {run.path}")
-    if run.data.get("warmup", False) != baseline_data.get("warmup", False):
+    if (run.data.get("warmup_streams", 0) > 0) != (
+        baseline_data.get("warmup_streams", 0) > 0
+    ):
         raise ValueError(f"Baseline warmup mode differs for {run.path}")
     run.baseline = load_baseline(path)
     recorded = run.data["baseline_latencies_s"]
@@ -364,7 +366,7 @@ def add_figure_title(
     metric: str,
 ) -> None:
     """Adds the cache mode and measurement hardware above the figure."""
-    modes = {run.data.get("warmup", False) for run in runs}
+    modes = {run.data.get("warmup_streams", 0) > 0 for run in runs}
     if len(modes) == 1:
         cache = "Hot cache" if True in modes else "Cold cache"
     else:
@@ -424,12 +426,12 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def split_runs(runs: list[PlotRun]) -> dict[tuple[str, str], list[PlotRun]]:
+def split_runs(runs: list[PlotRun]) -> dict[tuple[int, str], list[PlotRun]]:
     """Separates cache/order combinations before sample aggregation."""
-    groups: dict[tuple[str, str], list[PlotRun]] = defaultdict(list)
+    groups: dict[tuple[int, str], list[PlotRun]] = defaultdict(list)
     for run in runs:
-        cache = "hot" if run.data.get("warmup", False) else "cold"
-        groups[cache, str(run.data["seed"])].append(run)
+        key = run.data.get("warmup_streams", 0), str(run.data["seed"])
+        groups[key].append(run)
     return groups
 
 
@@ -445,9 +447,10 @@ def main() -> None:
     for subset in groups.values():
         for metric in args.metrics:
             prepare_runs(subset, metric, settings)
-    for (cache, seed), subset in groups.items():
+    for (warmup_streams, seed), subset in groups.items():
         directory = (
-            output / cache / f"seed-{seed}" if len(groups) > 1 else output
+            output / f"warmup-{warmup_streams}" / f"seed-{seed}"
+            if len(groups) > 1 else output
         )
         for metric in args.metrics:
             render_metric(subset, metric, directory, settings)

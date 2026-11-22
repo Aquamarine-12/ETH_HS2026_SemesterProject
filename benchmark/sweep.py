@@ -15,7 +15,6 @@ from itertools import product
 from pathlib import Path
 
 from cli import (
-    CacheMode,
     load_run_settings,
     load_sweep_settings,
     parse_sweep_arguments,
@@ -56,7 +55,7 @@ def run_child(settings: RunSettings) -> None:
     ]
     if settings.baseline_json is not None:
         command.extend(["--baseline-json", str(settings.baseline_json)])
-    if settings.warmup:
+    if settings.warmup_streams > 0:
         command.append("--warmup")
     subprocess.run(command, check=True)
 
@@ -65,9 +64,9 @@ def run_sample(
     settings: RunSettings, connections: list[int], root: Path
 ) -> list[JsonObject]:
     """Measures one reference and the requested concurrent workloads."""
-    cache = CacheMode.HOT if settings.warmup else CacheMode.COLD
     directory = (
-        root / settings.device / cache / f"seed-{settings.seed}"
+        root / settings.device / f"warmup-{settings.warmup_streams}"
+        / f"seed-{settings.seed}"
         / f"sample-{settings.sample:02d}"
     )
     baseline = replace(
@@ -101,7 +100,7 @@ def main() -> None:
     # Exclude sweep-only overrides when loading the shared run settings.
     run_values = {
         name: value for name, value in vars(args).items()
-        if name not in ("connections", "samples", "output")
+        if name not in ("connections", "samples", "output", "warmup_streams")
     }
     run = load_run_settings(argparse.Namespace(**run_values))
     run = replace(run, output=None, baseline_json=None)
@@ -115,13 +114,13 @@ def main() -> None:
         },
     )
     entries: list[JsonObject] = []
-    for sample, device, cache, seed in product(
+    for sample, device, warmup_streams, seed in product(
         range(1, sweep.samples + 1), sweep.devices,
-        sweep.cache_modes, sweep.seeds,
+        sweep.warmup_streams, sweep.seeds,
     ):
         settings = replace(
             run, sample=sample, device=device,
-            warmup=cache == CacheMode.HOT, seed=seed,
+            warmup_streams=warmup_streams, seed=seed,
         )
         entries.extend(run_sample(settings, sweep.connections, root))
     write_json(

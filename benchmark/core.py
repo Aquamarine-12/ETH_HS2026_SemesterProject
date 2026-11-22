@@ -63,7 +63,6 @@ class RunSettings:
     device: Device = Device.CPU
     connections: int = 1
     seed: StreamSeed = StreamOrder.ASC
-    warmup: bool = False
     warmup_streams: int = 0  # 0 means no warmup.
     sirius_extension: Path = DEFAULT_SIRIUS_EXTENSION
     io_backend: IoBackend = IoBackend.IO_URING
@@ -142,9 +141,7 @@ def make_warmup_streams(
 ) -> list[QueryOrder]:
     """Builds reproducible shuffled warmup orders independent of measured N."""
     seed = settings.seed if isinstance(settings.seed, int) else settings.sample
-    # 0 means no warmup.
-    count = settings.warmup_streams if settings.warmup else 0
-    return make_streams(query_ids, count, seed)
+    return make_streams(query_ids, settings.warmup_streams, seed)
 
 
 def reset_database_cache(database: Path) -> None:
@@ -315,8 +312,7 @@ def initialize_database(
     if settings.device == Device.GPU:
         # Admission must accommodate either phase, including warm N=1 baselines.
         admission = max(
-            settings.connections,
-            settings.warmup_streams if settings.warmup else 0,
+            settings.connections, settings.warmup_streams,
         )
         load_sirius(
             root, settings.sirius_extension, admission,

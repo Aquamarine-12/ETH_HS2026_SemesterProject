@@ -67,7 +67,7 @@ def index_entry(
         "sample": settings.sample,
         "device": settings.device,
         "connections": settings.connections,
-        "warmup": settings.warmup,
+        "warmup_streams": settings.warmup_streams,
         "seed": settings.seed,
         "role": "baseline" if settings.baseline_json is None else "measurement",
         "included": included,
@@ -84,7 +84,9 @@ def load_baseline(
     if result["connections"] != 1:
         raise ValueError(f"Expected an N=1 baseline: {path}")
     if settings is not None:
-        if result.get("warmup", False) != settings.warmup:
+        if (result.get("warmup_streams", 0) > 0) != (
+            settings.warmup_streams > 0
+        ):
             raise ValueError(f"Baseline warmup mode differs: {path}")
         if (
             result["device"] == "gpu"
@@ -123,9 +125,7 @@ def result_document(result: BenchmarkResult, output: Path) -> JsonObject:
         "process_id": result.process_id,
         "connections": settings.connections,
         "seed": settings.seed,
-        "warmup": settings.warmup,
-        # 0 means no warmup.
-        "warmup_streams": settings.warmup_streams if settings.warmup else 0,
+        "warmup_streams": settings.warmup_streams,
         "warmup_query_orders": result.warmup_orders,
         "role": "baseline"
         if settings.connections == 1 and settings.baseline_json is None

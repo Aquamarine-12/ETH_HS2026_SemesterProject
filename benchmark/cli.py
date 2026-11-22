@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import tomllib
 from dataclasses import asdict, dataclass, fields
-from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -25,13 +24,6 @@ PATH_FIELDS = {
 }
 
 
-class CacheMode(StrEnum):
-    """Selects whether measurement follows a warmup workload."""
-
-    COLD = "cold"
-    HOT = "hot"
-
-
 @dataclass
 class SweepSettings:
     """Describes the repeated parameter combinations in one experiment."""
@@ -39,7 +31,7 @@ class SweepSettings:
     connections: list[int]
     samples: int
     devices: list[Device]
-    cache_modes: list[CacheMode]
+    warmup_streams: list[int]
     seeds: list[StreamSeed]
     output: Path
 
@@ -70,6 +62,12 @@ def load_run_settings(args: argparse.Namespace) -> RunSettings:
     names = {field.name for field in fields(RunSettings)}
     overrides = {key: val for key, val in vars(args).items() if key in names}
     values.update(resolve_paths(overrides, Path.cwd()))
+    # CLI enable/disable flags become one internal stream count.
+    if (
+        getattr(args, "command", None) == "benchmark"
+        and not getattr(args, "warmup", False)
+    ):
+        values["warmup_streams"] = 0
     values["device"] = Device(values["device"])
     values["io_backend"] = IoBackend(values["io_backend"])
     values["seed"] = parse_seed(values["seed"])
@@ -135,15 +133,15 @@ def add_run_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def add_warmup_arguments(parser: argparse.ArgumentParser) -> None:
-    """Adds independent warmup controls for single runs and sweeps."""
+    """Adds benchmark CLI controls normalized to one internal count."""
     parser.add_argument(
         "--warmup", action=argparse.BooleanOptionalAction,
         default=argparse.SUPPRESS,
-        help="Run shuffled warmup streams before measurement (default: off)",
+        help="Enable the configured warmup streams (default: off)",
     )
     parser.add_argument(
         "--warmup-streams", type=int, default=argparse.SUPPRESS,
-        help="Concurrent warmup streams, each with 22 queries (default: 5)",
+        help="Concurrent warmup streams, each with 22 queries (default: 0)",
     )
 
 
@@ -176,26 +174,10 @@ def parse_sweep_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         default=argparse.SUPPRESS,
         help="Query orders: ASC, DESC, ASC-DESC, or integer shuffle seeds",
     )
-    cache = parser.add_mutually_exclusive_group()
-    cache.add_argument(
-        "--cache", dest="cache_modes", nargs="+", type=CacheMode,
-        choices=list(CacheMode), default=argparse.SUPPRESS,
-        help="Cache modes to sweep: cold, hot, or both",
-    )
-    cache.add_argument(
-        "--warmup", dest="cache_modes", action="store_const",
-        const=[CacheMode.HOT], default=argparse.SUPPRESS,
-        help="Sweep hot cache only",
-    )
-    cache.add_argument(
-        "--no-warmup", dest="cache_modes", action="store_const",
-        const=[CacheMode.COLD], default=argparse.SUPPRESS,
-        help="Sweep cold cache only",
-    )
     add_io_backend_argument(parser)
     parser.add_argument(
-        "--warmup-streams", type=int, default=argparse.SUPPRESS,
-        help="Concurrent warmup streams, each with 22 queries",
+        "--warmup-streams", type=int, nargs="+", default=argparse.SUPPRESS,
+        help="Warmup counts to sweep; 0 means cold cache (default: 0)",
     )
     return parser.parse_args(argv)
 
@@ -205,7 +187,7 @@ def load_sweep_settings(
 ) -> SweepSettings:
     """Resolves sweep values without treating them as single-run overrides."""
     values = read_config(args.config).get("sweep", {})
-    for name in ("connections", "samples", "cache_modes", "seeds"):
+    for name in ("connections", "samples", "warmup_streams", "seeds"):
         value = getattr(args, name, None)
         if value is not None:
             values[name] = value
@@ -222,11 +204,7 @@ def load_sweep_settings(
         devices=[
             Device(value) for value in values.get("devices", [run.device])
         ],
-        cache_modes=[
-            CacheMode(value) for value in values.get(
-                "cache_modes", [CacheMode.HOT if run.warmup else CacheMode.COLD]
-            )
-        ],
+        warmup_streams=values.get("warmup_streams", [run.warmup_streams]),
         seeds=[parse_seed(value) for value in values.get("seeds", [run.seed])],
         output=output,
     )

@@ -18,7 +18,6 @@ write result JSON. Each file describes one measured workload with N streams.
 | `process_id` | PID of this fresh measurement process |
 | `connections` | Number of concurrent streams, N |
 | `seed` | Integer shuffle seed, `ASC` (default), `DESC`, or `ASC-DESC` |
-| `warmup` | Whether an unmeasured warmup phase was enabled |
 | `warmup_streams` | Concurrent warmup streams, independent of N; 0 when disabled |
 | `warmup_query_orders` | Shuffled query IDs for each warmup stream; empty when disabled |
 | `role` | `baseline` for an unreferenced N=1 run; otherwise `measurement` |
@@ -35,13 +34,13 @@ query IDs), and `query_latencies_s` (query ID to seconds). JSON object keys
 are strings. Baseline latency keys therefore also become strings on disk.
 Query-result rows are not saved.
 
-Warmup settings default to disabled and five requested streams. When enabled,
+`warmup_streams` defaults to zero, meaning cold cache. For a positive count,
 each warmup stream executes all 22 queries and fully fetches the results.
 The shuffle seed is the integer measurement seed, or the sample number for
 named measurement orders. This gives matching warmup orders across baseline
 and comparison runs in a sample. Only measured queries appear in `streams`,
-`total_queries`, QPS, and slowdown. Settings JSON retains the requested
-`warmup_streams` even when warmup is disabled; result JSON records zero then.
+`total_queries`, QPS, and slowdown. Settings, index, and result JSON store
+only `warmup_streams`; there is no separate warmup boolean.
 
 `io_backend = "kvikio"` means the fixed workaround configuration: one GPU,
 `KVIKIO_COMPAT_MODE=ON`, and `KVIKIO_AUTO_DIRECT_IO_READ=0`. The generated
@@ -93,7 +92,7 @@ sweep-20261104-143000-123456/
     settings.json
     index.json
     gpu/
-        cold/
+        warmup-0/
             seed-ASC/
                 sample-01/
                     baseline.json
@@ -105,14 +104,14 @@ sweep-20261104-143000-123456/
                     ...
                 sample-02/
                     ...
-        hot/
+        warmup-5/
             seed-DESC/
                 ...
 ```
 
 `settings.json` records the effective `[run]` and `[sweep]` settings.
 `index.json` contains `settings_json` and a `runs` list. Each entry records
-sample, backend, connections, warmup mode, seed, role, `result_json`,
+sample, backend, connections, warmup stream count, seed, role, `result_json`,
 `baseline_json`, and `included`. References here are relative to the index.
 `included` determines
 whether N=1 was requested for per-query latency plots. The QPS plot always
@@ -128,10 +127,9 @@ explicit output file can remain after failure; use new filenames/directories.
 
 ## Plot aggregation
 
-Cache modes and query orders are separated before aggregating samples. A mixed
-index produces separate figure sets in `<hot|cold>/seed-<order>/` subdirectories;
-a single combination keeps the original figure paths. Warmup stream count
-does not define a plot group.
+Warmup counts and query orders are separated before aggregating samples. A mixed
+index produces separate figure sets in `warmup-<count>/seed-<order>/`
+subdirectories; a single combination keeps the original figure paths.
 
 For QPS and mean slowdown, every independent repeated run contributes one
 value at its connection count. Per-query latency plots first average stream
@@ -161,9 +159,9 @@ N>=2. Explicit N=1 latency selections can use the saved baseline record.
 
 Slowdown plots require the referenced file and saved baseline latencies to
 agree, with matching backend, database, sample, seed, engine version,
-and fallback/I/O settings. Warmup enablement must also match; older results
-without warmup fields are treated as cold. Warmup stream counts and orders
-are metadata, not grouping or baseline compatibility requirements.
+and fallback/I/O settings. Both files must agree on whether the warmup stream
+count is positive. Missing counts default to zero (cold). Different positive
+counts and warmup query orders do not invalidate a baseline comparison.
 Older result pairs without an I/O field remain
 plottable together, but cannot establish a match with a newly recorded GPU
 I/O backend. GPU labels include the recorded I/O backend to keep separate

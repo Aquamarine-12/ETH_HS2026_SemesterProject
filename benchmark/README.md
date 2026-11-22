@@ -59,15 +59,14 @@ sirius_extension = "~/.local/lib/sirius/sirius.duckdb_extension"
 results_dir = "results"
 # io_backend = "kvikio"  # GPU only; default: "io_uring"
 # seed = 42
-# warmup = true         # Default: false
-warmup_streams = 5
+warmup_streams = 0
 # baseline_json = "results/cpu-baseline.json"
 
 [sweep]
 connections = [2, 3, 4, 5, 6, 7, 8, 9, 10]
 samples = 5
 devices = ["cpu", "gpu"]
-cache_modes = ["cold", "hot"]
+warmup_streams = [0]  # Use [0, 5] to sweep cold and warm cache.
 seeds = ["ASC", "DESC", "ASC-DESC", 42]
 ```
 
@@ -90,19 +89,18 @@ trigger a second run or receive an artificial slowdown value. The main entry
 point prints a warning explaining this. Sweep references are always generated
 automatically, regardless of a single-run baseline configured in TOML.
 
-`[sweep].cache_modes` and `[sweep].seeds` are lists, like `devices` and
+`[sweep].warmup_streams` and `[sweep].seeds` are lists, like `devices` and
 `connections`. The sweep runs every combination. If omitted, each list falls
 back to the corresponding `[run]` setting. Explicit CLI lists override TOML:
 
 ```bash
-python sweep.py --config experiment-sf10.toml --cache cold hot \
+python sweep.py --config experiment-sf10.toml --warmup-streams 0 5 \
   --seed ASC DESC ASC-DESC 42
 ```
 
-`--warmup` and `--no-warmup` still select just hot or cold cache, respectively.
-`--seed` (also `--seeds`) accepts named orders or integer shuffle seeds. Each
-combination has its own baseline and output directory. Hot-cache runs need a
-nonzero configured `warmup_streams`; setting it to zero skips warmup queries.
+Zero warmup streams means cold cache; a positive count runs that many warmup
+streams. The default is zero. `--seed` (also `--seeds`) accepts named orders or
+integer shuffle seeds. Each combination has its own baseline and output directory.
 
 ### GPU I/O backend
 
@@ -146,9 +144,9 @@ By default, each worker executes its stream once, starting at a shared barrier.
 Cache contents naturally change during execution; the eviction request happens
 before the workload, not between queries.
 
-Enable `--warmup` for a warm-cache measurement. Before measurement, five
-concurrent streams each execute and fully fetch all 22 queries in shuffled
-order; `--warmup-streams` adjusts that count independently of measurement N.
+For a standalone warm-cache measurement, use `--warmup --warmup-streams 5`.
+Each warmup stream executes and fully fetches all 22 queries in shuffled order,
+independently of measurement N. The default count is zero, meaning cold cache.
 All warmup finishes before measurement starts, with the same database instance
 and connection pool kept open and no intervening cache reset. This warms shared
 engine caches but does not guarantee steady state or full RAM/VRAM residency.
@@ -157,12 +155,15 @@ Use a warm baseline for warm measurements and a cold baseline for cold ones.
 For example, to enable warmup throughout a sweep:
 
 ```bash
-python sweep.py --config experiment-sf10.toml --warmup
+python sweep.py --config experiment-sf10.toml --warmup-streams 5
 ```
 
-Single runs and sweeps accept CLI or TOML warmup settings. `--no-warmup`
-overrides enabled TOML warmup. Shuffling uses an integer `--seed`, otherwise
-the sample number, and actual warmup orders are recorded in JSON.
+The benchmark CLI keeps `--warmup` / `--no-warmup` as enable/disable controls
+for the configured count. Without `--warmup`, the effective count is zero.
+Those flags are resolved during CLI settings loading; internal settings and
+JSON store only `warmup_streams`. Sweeps use count lists directly. Shuffling
+uses an integer `--seed`, otherwise the sample number, and actual warmup orders
+are recorded in JSON.
 
 Each query timer includes `execute(sql).fetchall()`. Overall elapsed time is
 measurement-barrier release to the last stream's completion. Setup, cache
@@ -203,12 +204,12 @@ python plot.py path/to/index.json --metrics qps latency
 
 A single result JSON is also accepted; it supplies a single measured sample.
 When an index contains multiple cache/order combinations, plotting writes
-separate figures under `plots/<hot|cold>/seed-<order>/`. A single combination
-keeps the existing output layout. Warmup stream count does not group plots.
+separate figures under `plots/warmup-<count>/seed-<order>/`. A single
+combination keeps the existing output layout.
 Use `--output path/to/figures` to choose the figure directory.
 See [RESULTS.md](RESULTS.md) for the JSON fields, formula, and output layout.
 
-Figure titles show hot or cold cache from the recorded `warmup` setting.
+Figure titles show hot or cold cache from whether `warmup_streams` is positive.
 The subtitle shows CPU/GPU models detected on the measurement node by
 `hardware.py` and saved with each new result. Older results without those
 fields show "not recorded". Run `python hardware.py` for a quick hardware summary.
