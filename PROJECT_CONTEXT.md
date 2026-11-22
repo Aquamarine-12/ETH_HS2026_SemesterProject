@@ -449,3 +449,10 @@ flag, with the recorded CPU/GPU models on a subtitle line. Plotting never
 detects the plotting machine's hardware. Older results without model metadata
 show "not recorded". Mixed cache modes are labeled explicitly. This does not
 change series grouping or require additional plotting arguments.
+
+## Update: 2026-11-22 one GPU for all I/O backends
+
+At the user's request, generated Sirius YAML now sets `topology.num_gpus: 1`
+for both `io_uring` and `kvikio`. All query streams share that GPU. The runner
+continues to preserve scheduler-provided GPU visibility. Generated YAML was
+checked for both backends; GPU runtime validation remains a cluster task.

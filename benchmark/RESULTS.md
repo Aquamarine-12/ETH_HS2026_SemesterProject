@@ -47,7 +47,7 @@ and comparison runs in a sample. Only measured queries appear in `streams`,
 `KVIKIO_COMPAT_MODE=ON`, and `KVIKIO_AUTO_DIRECT_IO_READ=0`. The generated
 Sirius YAML retains the selected backend, admission count, and GPU topology;
 the settings JSON retains the requested selection even for CPU runs, where
-it has no effect. Native `io_uring` runs leave GPU topology at Sirius's default.
+it has no effect. Both I/O backends explicitly set `topology.num_gpus: 1`.
 GPU comparisons require a baseline with a matching recorded I/O backend.
 
 The old `baseline` and `isolated_latencies_s` fields are now named

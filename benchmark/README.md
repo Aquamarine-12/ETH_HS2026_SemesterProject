@@ -116,8 +116,7 @@ and [KvikIO runtime settings](https://docs.nvidia.com/kvikio/latest/runtime_sett
 The I/O path can change timing and contention, so each GPU JSON records
 `io_backend`, and GPU plot labels include it. Use a baseline from the same
 I/O backend; regenerate older GPU baselines whose I/O selection was not
-recorded. KvikIO's single-GPU selection also matters when comparing it with a
-native run on a machine where Sirius normally sees multiple GPUs.
+recorded. Both I/O backends explicitly use one GPU, shared by all query streams.
 
 ## Cache and timing
 
@@ -242,9 +241,9 @@ GPU workers keep `enable_duckdb_fallback = false`; unsupported GPU execution
 fails. The generated per-run Sirius YAML sets startup-only admission to the
 larger of N and the enabled warmup stream count.
 This setting has no equivalent runtime `SET`/connection option, so the YAML
-must exist before loading Sirius. The YAML also selects the I/O backend and,
-for KvikIO, one GPU. Other Sirius defaults, including Quent telemetry, remain
-intact. Scheduler GPU visibility is preserved.
+must exist before loading Sirius. The YAML also selects the I/O backend and
+sets `topology.num_gpus: 1` for both backends. Other Sirius defaults, including
+Quent telemetry, remain intact. Scheduler GPU visibility is preserved.
 
 ## User-local installation
 

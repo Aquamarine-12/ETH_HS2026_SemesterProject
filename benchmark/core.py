@@ -162,11 +162,9 @@ def sirius_config_yaml(connections: int, io_backend: IoBackend) -> str:
     backend = "sirius" if io_backend == IoBackend.IO_URING else "kvikio"
     config = (
         f"sirius:\n  max_concurrent_queries: {connections}\n"
+        "  topology:\n    num_gpus: 1\n"
         f"  executor:\n    scan_manager:\n      backend: {backend}\n"
     )
-    if io_backend == IoBackend.KVIKIO:
-        # Multi-GPU execution forces older builds back to the native backend.
-        config += "  topology:\n    num_gpus: 1\n"
     return config
 
 
