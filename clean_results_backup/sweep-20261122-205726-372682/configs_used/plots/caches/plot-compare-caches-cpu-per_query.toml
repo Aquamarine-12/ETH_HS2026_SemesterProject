@@ -1,0 +1,8 @@
+# Four lines: CPU/GPU, each with cold/hot cache, in ascending query order.
+[plot]
+metrics = ["per_query_latency", "per_query_slowdown"]
+devices = ["cpu"]
+cache_modes = ["cold", "hot"]
+seeds = ["ASC"]
+group_by = ["cache"]
+connections = [2, 8]
