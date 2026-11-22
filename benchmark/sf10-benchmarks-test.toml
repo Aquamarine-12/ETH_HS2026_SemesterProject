@@ -1,4 +1,4 @@
-# SF10 on both backends, with five samples at every connection count.
+# SF10 on both backends, with three samples at every connection count.
 # Paths are relative to this file.
 # Each sample/backend/cache/order combination gets its own N=1 baseline.
 [run]
