@@ -1,0 +1,44 @@
+{
+  "run": {
+    "db": "/home/ahurjui/projects/ETH_HS2026_SemesterProject/benchmark/data/sf10.duckdb",
+    "device": "cpu",
+    "connections": 2,
+    "seed": "ASC",
+    "warmup_streams": 0,
+    "sirius_extension": "/home/ahurjui/.local/lib/sirius/sirius.duckdb_extension",
+    "io_backend": "io_uring",
+    "baseline_json": null,
+    "output": null,
+    "results_dir": "/home/ahurjui/projects/ETH_HS2026_SemesterProject/benchmark/results",
+    "sample": 1
+  },
+  "sweep": {
+    "connections": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "samples": 5,
+    "devices": [
+      "cpu",
+      "gpu"
+    ],
+    "warmup_streams": [
+      0,
+      5
+    ],
+    "seeds": [
+      "ASC",
+      "DESC",
+      "ASC-DESC",
+      42
+    ],
+    "output": "/home/ahurjui/projects/ETH_HS2026_SemesterProject/benchmark/results"
+  }
+}

@@ -1,0 +1,7 @@
+sirius:
+  max_concurrent_queries: 2
+  topology:
+    num_gpus: 1
+  executor:
+    scan_manager:
+      backend: sirius
