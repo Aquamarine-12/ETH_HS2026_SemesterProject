@@ -60,13 +60,15 @@ results_dir = "results"
 # io_backend = "kvikio"  # GPU only; default: "io_uring"
 # seed = 42
 # warmup = true         # Default: false
-# warmup_streams = 5
+warmup_streams = 5
 # baseline_json = "results/cpu-baseline.json"
 
 [sweep]
 connections = [2, 3, 4, 5, 6, 7, 8, 9, 10]
 samples = 5
 devices = ["cpu", "gpu"]
+cache_modes = ["cold", "hot"]
+seeds = ["ASC", "DESC", "ASC-DESC", 42]
 ```
 
 The default `seed = "ASC"` gives identical Q1–Q22 order in every stream.
@@ -82,11 +84,25 @@ Supply connection counts through `[sweep].connections` or the sweep CLI
 generation requires an explicit `--scale-factor`.
 
 The sweep runs sequentially, with a fresh Python process per measurement.
-Every sample/backend combination gets one N=1 baseline, followed by
+Every sample/backend/cache/order combination gets one N=1 baseline, followed by
 its requested N>1 runs. Requested N=1 points reuse that baseline; they do not
 trigger a second run or receive an artificial slowdown value. The main entry
 point prints a warning explaining this. Sweep references are always generated
 automatically, regardless of a single-run baseline configured in TOML.
+
+`[sweep].cache_modes` and `[sweep].seeds` are lists, like `devices` and
+`connections`. The sweep runs every combination. If omitted, each list falls
+back to the corresponding `[run]` setting. Explicit CLI lists override TOML:
+
+```bash
+python sweep.py --config experiment-sf10.toml --cache cold hot \
+  --seed ASC DESC ASC-DESC 42
+```
+
+`--warmup` and `--no-warmup` still select just hot or cold cache, respectively.
+`--seed` (also `--seeds`) accepts named orders or integer shuffle seeds. Each
+combination has its own baseline and output directory. Hot-cache runs need a
+nonzero configured `warmup_streams`; setting it to zero skips warmup queries.
 
 ### GPU I/O backend
 
@@ -186,6 +202,9 @@ python plot.py path/to/index.json --metrics qps latency
 ```
 
 A single result JSON is also accepted; it supplies a single measured sample.
+When an index contains multiple cache/order combinations, plotting writes
+separate figures under `plots/<hot|cold>/seed-<order>/`. A single combination
+keeps the existing output layout. Warmup stream count does not group plots.
 Use `--output path/to/figures` to choose the figure directory.
 See [RESULTS.md](RESULTS.md) for the JSON fields, formula, and output layout.
 

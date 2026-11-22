@@ -456,3 +456,36 @@ At the user's request, generated Sirius YAML now sets `topology.num_gpus: 1`
 for both `io_uring` and `kvikio`. All query streams share that GPU. The runner
 continues to preserve scheduler-provided GPU visibility. Generated YAML was
 checked for both backends; GPU runtime validation remains a cluster task.
+
+## Update: 2026-11-22 sweep cache and query-order flags
+
+Sweeps accept `--warmup` / `--no-warmup` for hot/cold cache and now accept
+`--seed` with the same `ASC`, `DESC`, `ASC-DESC`, or integer shuffle choices
+as standalone runs. Explicit CLI values override `[run]` TOML settings and
+are forwarded to every baseline and comparison process. The requested
+`warmup_streams` default is 5; effective zero still means disabled warmup.
+
+## Update: 2026-11-22 sweep dimensions and preserved manual defaults
+
+The user clarified that cache modes and query orders must be sweep dimensions,
+not just single-run overrides. `SweepSettings` now has `cache_modes` and
+`seeds` lists. TOML uses `[sweep].cache_modes = ["cold", "hot"]` and
+`[sweep].seeds = ["ASC", "DESC", "ASC-DESC", 42]`. CLI `--cache` and
+`--seed` / `--seeds` accept lists and override TOML; `--warmup` and
+`--no-warmup` remain shortcuts for single-mode sweeps. Missing lists fall back
+to the corresponding `[run]` setting.
+
+Every sample/backend/cache/order combination gets an independent N=1 reference
+and a directory `<device>/<hot|cold>/seed-<order>/sample-XX/`. Plotting splits
+mixed indexes into separate cache/order figure sets; warmup stream counts
+still do not group data. Existing results stay in their original locations.
+
+The user manually restored `RunSettings.warmup_streams = 0` and explicitly
+asked that manual edits be preserved. This implementation does not edit
+`core.py`. Configure `[run].warmup_streams = 5` explicitly when actual warmup
+is wanted with that manual default. Do not restore earlier defaults silently.
+
+Verification: an SF0.01 CPU sweep covered both cache modes, four query orders,
+and N=1/N=2 in 16 fresh processes. Baseline associations, unique paths, counts,
+and metrics passed. Plot partitioning/aggregation/dispatch checks passed without
+rendering figures. A byte-level hash confirmed `core.py` was unchanged.

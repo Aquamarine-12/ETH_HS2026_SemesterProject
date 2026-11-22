@@ -1,6 +1,6 @@
 """Runs repeated parameter combinations in fresh, sequential processes.
 
-Each sample/backend combination gets one isolated reference measurement.
+Each sample/backend/cache/order combination gets one reference measurement.
 Its concurrent results retain that reference; N=1 reuses the reference itself.
 The completed index links raw results without replacing them with averages.
 """
@@ -11,9 +11,15 @@ import argparse
 import subprocess
 import sys
 from dataclasses import asdict, replace
+from itertools import product
 from pathlib import Path
 
-from cli import load_run_settings, load_sweep_settings, parse_sweep_arguments
+from cli import (
+    CacheMode,
+    load_run_settings,
+    load_sweep_settings,
+    parse_sweep_arguments,
+)
 from core import RunSettings
 from json_io import (
     JsonObject,
@@ -59,7 +65,11 @@ def run_sample(
     settings: RunSettings, connections: list[int], root: Path
 ) -> list[JsonObject]:
     """Measures one reference and the requested concurrent workloads."""
-    directory = root / settings.device / f"sample-{settings.sample:02d}"
+    cache = CacheMode.HOT if settings.warmup else CacheMode.COLD
+    directory = (
+        root / settings.device / cache / f"seed-{settings.seed}"
+        / f"sample-{settings.sample:02d}"
+    )
     baseline = replace(
         settings,
         connections=1,
@@ -105,10 +115,15 @@ def main() -> None:
         },
     )
     entries: list[JsonObject] = []
-    for sample in range(1, sweep.samples + 1):
-        for device in sweep.devices:
-            settings = replace(run, sample=sample, device=device)
-            entries.extend(run_sample(settings, sweep.connections, root))
+    for sample, device, cache, seed in product(
+        range(1, sweep.samples + 1), sweep.devices,
+        sweep.cache_modes, sweep.seeds,
+    ):
+        settings = replace(
+            run, sample=sample, device=device,
+            warmup=cache == CacheMode.HOT, seed=seed,
+        )
+        entries.extend(run_sample(settings, sweep.connections, root))
     write_json(
         root / "index.json",
         {

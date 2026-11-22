@@ -93,34 +93,45 @@ sweep-20261104-143000-123456/
     settings.json
     index.json
     gpu/
-        sample-01/
-            baseline.json
-            baseline.settings.json
-            baseline.sirius.yaml
-            n2.json
-            n2.settings.json
-            n2.sirius.yaml
-            ...
-        sample-02/
-            ...
+        cold/
+            seed-ASC/
+                sample-01/
+                    baseline.json
+                    baseline.settings.json
+                    baseline.sirius.yaml
+                    n2.json
+                    n2.settings.json
+                    n2.sirius.yaml
+                    ...
+                sample-02/
+                    ...
+        hot/
+            seed-DESC/
+                ...
 ```
 
 `settings.json` records the effective `[run]` and `[sweep]` settings.
 `index.json` contains `settings_json` and a `runs` list. Each entry records
-sample, backend, connections, role, `result_json`, `baseline_json`, and
-`included`. References here are relative to the index. `included` determines
+sample, backend, connections, warmup mode, seed, role, `result_json`,
+`baseline_json`, and `included`. References here are relative to the index.
+`included` determines
 whether N=1 was requested for per-query latency plots. The QPS plot always
 includes its reference result, even if only N>1 values were requested. References inside each result are relative
 to that result instead (typically just `baseline.json`).
 
 All measurements run sequentially using `sys.executable`. One reference is
-shared by the requested connection counts within a sample/backend
+shared by the requested connection counts within a sample/backend/cache/order
 combination. Repetitions generate new references. The runner stops on failure,
 retains already completed raw files, and writes the index only after the full
 sweep succeeds. A failed measurement writes no new result metrics. An old
 explicit output file can remain after failure; use new filenames/directories.
 
 ## Plot aggregation
+
+Cache modes and query orders are separated before aggregating samples. A mixed
+index produces separate figure sets in `<hot|cold>/seed-<order>/` subdirectories;
+a single combination keeps the original figure paths. Warmup stream count
+does not define a plot group.
 
 For QPS and mean slowdown, every independent repeated run contributes one
 value at its connection count. Per-query latency plots first average stream

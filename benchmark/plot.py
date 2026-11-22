@@ -369,12 +369,14 @@ def add_figure_title(
         cache = "Hot cache" if True in modes else "Cold cache"
     else:
         cache = "Hot and cold cache"
+    orders = ", ".join(sorted({str(run.data["seed"]) for run in runs}))
     hardware = []
     for label, key in (("CPU", "cpu_model"), ("GPU", "gpu_model")):
         models = sorted({run.data[key] for run in runs if run.data.get(key)})
         hardware.append(f"{label}: {', '.join(models) or 'not recorded'}")
     figure.suptitle(
-        f"{Y_LABELS[metric]} — {cache}\n{' | '.join(hardware)}\n"
+        f"{Y_LABELS[metric]} — {cache} — order {orders}\n"
+        f"{' | '.join(hardware)}\n"
         "Median across samples; bars: 95% bootstrap CI",
         fontsize=12,
     )
@@ -422,18 +424,33 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def split_runs(runs: list[PlotRun]) -> dict[tuple[str, str], list[PlotRun]]:
+    """Separates cache/order combinations before sample aggregation."""
+    groups: dict[tuple[str, str], list[PlotRun]] = defaultdict(list)
+    for run in runs:
+        cache = "hot" if run.data.get("warmup", False) else "cold"
+        groups[cache, str(run.data["seed"])].append(run)
+    return groups
+
+
 def main() -> None:
     """Plots requested measurements without silently dropping missing data."""
     args = parse_arguments()
     settings = load_plot_settings(args)
     source = args.source.expanduser().resolve()
     runs = load_runs(source)
+    groups = split_runs(runs)
     output = args.output or source.parent / "plots"
     # Reject missing selections or references before writing partial figures.
-    for metric in args.metrics:
-        prepare_runs(runs, metric, settings)
-    for metric in args.metrics:
-        render_metric(runs, metric, output, settings)
+    for subset in groups.values():
+        for metric in args.metrics:
+            prepare_runs(subset, metric, settings)
+    for (cache, seed), subset in groups.items():
+        directory = (
+            output / cache / f"seed-{seed}" if len(groups) > 1 else output
+        )
+        for metric in args.metrics:
+            render_metric(subset, metric, directory, settings)
     print(f"Figures: {output}")
 
 

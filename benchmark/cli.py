@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import tomllib
 from dataclasses import asdict, dataclass, fields
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,13 @@ PATH_FIELDS = {
 }
 
 
+class CacheMode(StrEnum):
+    """Selects whether measurement follows a warmup workload."""
+
+    COLD = "cold"
+    HOT = "hot"
+
+
 @dataclass
 class SweepSettings:
     """Describes the repeated parameter combinations in one experiment."""
@@ -31,6 +39,8 @@ class SweepSettings:
     connections: list[int]
     samples: int
     devices: list[Device]
+    cache_modes: list[CacheMode]
+    seeds: list[StreamSeed]
     output: Path
 
 
@@ -84,6 +94,16 @@ def add_io_backend_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_seed_argument(parser: argparse.ArgumentParser) -> None:
+    """Adds query-order selection shared by single runs and sweeps."""
+    parser.add_argument(
+        "--seed",
+        type=parse_seed,
+        default=argparse.SUPPRESS,
+        help="Integer shuffle seed, ASC, DESC, or ASC-DESC (default: ASC)",
+    )
+
+
 def add_run_arguments(parser: argparse.ArgumentParser) -> None:
     """Adds options for standalone measurements.
 
@@ -95,12 +115,7 @@ def add_run_arguments(parser: argparse.ArgumentParser) -> None:
         "--device", choices=list(Device), default=argparse.SUPPRESS
     )
     parser.add_argument("--connections", type=int, default=argparse.SUPPRESS)
-    parser.add_argument(
-        "--seed",
-        type=parse_seed,
-        default=argparse.SUPPRESS,
-        help="Integer shuffle seed, ASC, DESC, or ASC-DESC (default: ASC)",
-    )
+    add_seed_argument(parser)
     parser.add_argument(
         "--sirius-extension", type=Path, default=argparse.SUPPRESS
     )
@@ -156,8 +171,32 @@ def parse_sweep_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--samples", type=int)
     parser.add_argument("--connections", type=int, nargs="+")
+    parser.add_argument(
+        "--seed", "--seeds", dest="seeds", nargs="+", type=parse_seed,
+        default=argparse.SUPPRESS,
+        help="Query orders: ASC, DESC, ASC-DESC, or integer shuffle seeds",
+    )
+    cache = parser.add_mutually_exclusive_group()
+    cache.add_argument(
+        "--cache", dest="cache_modes", nargs="+", type=CacheMode,
+        choices=list(CacheMode), default=argparse.SUPPRESS,
+        help="Cache modes to sweep: cold, hot, or both",
+    )
+    cache.add_argument(
+        "--warmup", dest="cache_modes", action="store_const",
+        const=[CacheMode.HOT], default=argparse.SUPPRESS,
+        help="Sweep hot cache only",
+    )
+    cache.add_argument(
+        "--no-warmup", dest="cache_modes", action="store_const",
+        const=[CacheMode.COLD], default=argparse.SUPPRESS,
+        help="Sweep cold cache only",
+    )
     add_io_backend_argument(parser)
-    add_warmup_arguments(parser)
+    parser.add_argument(
+        "--warmup-streams", type=int, default=argparse.SUPPRESS,
+        help="Concurrent warmup streams, each with 22 queries",
+    )
     return parser.parse_args(argv)
 
 
@@ -166,6 +205,10 @@ def load_sweep_settings(
 ) -> SweepSettings:
     """Resolves sweep values without treating them as single-run overrides."""
     values = read_config(args.config).get("sweep", {})
+    for name in ("connections", "samples", "cache_modes", "seeds"):
+        value = getattr(args, name, None)
+        if value is not None:
+            values[name] = value
     output = run.results_dir
     if "output" in values:
         output = resolve_paths(
@@ -174,18 +217,16 @@ def load_sweep_settings(
     if args.output is not None:
         output = args.output.expanduser().resolve()
     return SweepSettings(
-        connections=(
-            args.connections
-            if args.connections is not None
-            else values["connections"]
-        ),
-        samples=(
-            args.samples
-            if args.samples is not None
-            else values.get("samples", 5)
-        ),
+        connections=values["connections"],
+        samples=values.get("samples", 5),
         devices=[
             Device(value) for value in values.get("devices", [run.device])
         ],
+        cache_modes=[
+            CacheMode(value) for value in values.get(
+                "cache_modes", [CacheMode.HOT if run.warmup else CacheMode.COLD]
+            )
+        ],
+        seeds=[parse_seed(value) for value in values.get("seeds", [run.seed])],
         output=output,
     )

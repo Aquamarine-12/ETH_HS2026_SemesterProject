@@ -67,6 +67,8 @@ def index_entry(
         "sample": settings.sample,
         "device": settings.device,
         "connections": settings.connections,
+        "warmup": settings.warmup,
+        "seed": settings.seed,
         "role": "baseline" if settings.baseline_json is None else "measurement",
         "included": included,
         "result_json": relative_path(settings.output, root),
