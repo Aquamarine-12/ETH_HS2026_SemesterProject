@@ -146,8 +146,10 @@ defaults to all three dimensions. Cold means zero warmup streams; hot means
 a positive count.
 
 All selected comparison series share one figure per metric. Every PNG/PDF
-is written directly to the output folder with its metric name, such as
-`total_qps.png`; plotting no longer creates warmup/order subdirectories.
+is written directly to the output folder with its metric, query orders, cache
+regimes, and displayed connection counts in the filename, such as
+`total_qps__order-ASC__cache-cold+hot__connections-1+2+4+7.png`.
+Plotting no longer creates warmup/order subdirectories.
 Per-query figures have one point series per condition/connection combination,
 with horizontal offsets within each query and no connecting lines. Total
 metrics use connection count as the x-axis.

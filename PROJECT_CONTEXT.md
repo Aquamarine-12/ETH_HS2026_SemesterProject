@@ -612,6 +612,12 @@ saved result paths, raw measurements, and hardware subtitles are preserved.
 `benchmark/plot-comparison.toml` provides the four-line CPU/GPU cold/hot QPS
 example. Filtering GPU and grouping cache gives the two-line alternative.
 
+Plot filenames also include the displayed query orders, cache regimes, and
+connection counts, joined with `+` when several values appear. These come
+from the filtered data for each metric, so slowdown filenames omit N=1.
+For example: `total_qps__order-ASC__cache-cold+hot__connections-1+2+4+7.png`.
+PNG and PDF use the same basename; all figures remain in one output folder.
+
 Verification used real PNG/PDF rendering and synthetic comparison fixtures
 covering both examples, query-order comparisons, global connection/query
 filters, sample aggregation, CIs, CLI/TOML precedence, and error preflight.

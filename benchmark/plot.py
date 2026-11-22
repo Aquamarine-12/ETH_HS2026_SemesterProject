@@ -464,6 +464,18 @@ def add_figure_title(
     )
 
 
+def plot_basename(runs: list[PlotRun], metric: str) -> str:
+    """Names a figure using the orders, cache modes, and Ns it displays."""
+    orders = sorted({dimension_value(run, "query_order") for run in runs})
+    cache_modes = sorted({dimension_value(run, "cache") for run in runs})
+    connections = sorted({run.data["connections"] for run in runs})
+    return (
+        f"{metric}__order-{'+'.join(orders)}"
+        f"__cache-{'+'.join(cache_modes)}"
+        f"__connections-{'+'.join(str(count) for count in connections)}"
+    )
+
+
 def render_metric(
     runs: list[PlotRun],
     metric: str,
@@ -480,8 +492,9 @@ def render_metric(
     )
     add_figure_title(figure, runs, metric)
     output.mkdir(parents=True, exist_ok=True)
+    basename = plot_basename(runs, metric)
     for suffix in ("png", "pdf"):
-        figure.savefig(output / f"{metric}.{suffix}", dpi=180)
+        figure.savefig(output / f"{basename}.{suffix}", dpi=180)
     plt.close(figure)
 
 

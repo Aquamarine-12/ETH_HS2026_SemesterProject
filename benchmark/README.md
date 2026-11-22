@@ -210,7 +210,7 @@ directory to plot elsewhere; plotting needs NumPy and Matplotlib, not DuckDB
 or a GPU. Shared warm batches may have the same process ID across several Ns;
 plot aggregation uses the recorded sample IDs and references.
 
-The four plotting metrics and output basenames are:
+The four plotting metrics are:
 
 | Metric | Figure |
 | --- | --- |
@@ -220,8 +220,10 @@ The four plotting metrics and output basenames are:
 | `per_query_slowdown` | Slowdown factor for each selected query |
 
 All four are produced by default, each as PNG and PDF directly in one `plots/`
-directory beside the source JSON. For example, `total_qps.png` and
-`total_qps.pdf` compare all selected series on the same axes. There are no
+directory beside the source JSON. Filenames include the query orders, cache
+regimes, and connection counts actually plotted, for example
+`total_qps__order-ASC__cache-cold+hot__connections-1+2+4+7.png`.
+Multiple values use `+`; PNG and PDF share the same basename. There are no
 automatic cache/order subdirectories. `--output DIR` selects another folder.
 
 Each run first contributes one stream-averaged value per query. Figures show
