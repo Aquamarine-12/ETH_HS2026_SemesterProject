@@ -10,7 +10,7 @@ results_dir = "results"
 
 [sweep]
 devices = ["cpu", "gpu"]
-warmup_streams = [5]  # Cold cache (0 warmup streams), hot cache (5 streams).
+warmup_streams = [0]  # Cold cache (0 warmup streams), hot cache (5 streams).
 seeds = ["ASC"]
 connections = [2, 3]
 samples = 2
