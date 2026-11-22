@@ -14,8 +14,9 @@ import random
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack
-from dataclasses import dataclass, field
+from collections.abc import Generator
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import TypeAlias
@@ -95,6 +96,16 @@ class BenchmarkResult:
     process_id: int
     cpu_fallback: bool = False
     warmup_orders: list[QueryOrder] = field(default_factory=list)
+
+
+@dataclass
+class BenchmarkSession:
+    """Keeps shared engine connections and workers alive across measurements."""
+
+    queries: Queries
+    duckdb_version: str
+    connections: list[duckdb.DuckDBPyConnection]
+    pool: ThreadPoolExecutor
 
 
 def generate_tables(database: Path, scale_factor: float) -> None:
@@ -217,40 +228,23 @@ def run_stream(
     return StreamResult(timings, time.perf_counter())
 
 
-def run_concurrent(
-    root: duckdb.DuckDBPyConnection,
-    queries: Queries,
-    orders: list[QueryOrder],
-    settings: RunSettings,
-    warmup_orders: list[QueryOrder] | None = None,
-) -> tuple[list[StreamResult], float]:
-    """Warms the shared instance, then measures independent stream counts."""
-    warmup_orders = warmup_orders or []
-    count = max(len(orders), len(warmup_orders))
-    # Keep all connections open so shared engine caches survive both phases.
-    with ExitStack() as stack:
-        connections = [stack.enter_context(root.cursor()) for _ in range(count)]
-        for connection in connections:
-            configure_connection(connection, settings.device)
-        with ThreadPoolExecutor(max_workers=count) as pool:
-            if warmup_orders:
-                print(
-                    f"Running {len(warmup_orders)} warmup streams...",
-                    flush=True,
-                )
-                barrier = threading.Barrier(len(warmup_orders))
-                futures = [
-                    pool.submit(run_warmup_stream, con, queries, order, barrier)
-                    for con, order in zip(connections, warmup_orders)
-                ]
-                # Propagate warmup failures before submitting measured queries.
-                for future in futures:
-                    future.result()
-            print(
-                f"Measuring {len(orders)} {settings.device} streams...",
-                flush=True,
-            )
-            return measure_streams(pool, connections, queries, orders)
+def run_warmup(
+    session: BenchmarkSession, orders: list[QueryOrder]
+) -> None:
+    """Completes all warmup streams before any measurement can start."""
+    if not orders:
+        return
+    print(f"Running {len(orders)} warmup streams...", flush=True)
+    barrier = threading.Barrier(len(orders))
+    futures = [
+        session.pool.submit(
+            run_warmup_stream, connection, session.queries, order, barrier
+        )
+        for connection, order in zip(session.connections, orders)
+    ]
+    # Propagate warmup failures before submitting measured queries.
+    for future in futures:
+        future.result()
 
 
 def run_warmup_stream(
@@ -331,34 +325,39 @@ def connect_database(settings: RunSettings) -> duckdb.DuckDBPyConnection:
     return duckdb.connect(str(settings.db), read_only=True, config=options)
 
 
-def benchmark(
+@contextmanager
+def open_session(
     settings: RunSettings,
-    baseline: QueryLatencies | None,
     sirius_config: Path,
-) -> BenchmarkResult:
-    """Measures one complete workload on a fresh database instance.
-
-    Eviction, setup, and warmup precede timing; timers include full fetch.
-
-    Args:
-        settings: Backend, database, stream order, and connection count.
-        baseline: Per-query seconds from a separate N=1 run, or None.
-        sirius_config: Destination for the GPU runtime's startup YAML.
-
-    Returns:
-        Stream latencies, elapsed time, QPS, and optional mean slowdown.
-    """
+) -> Generator[BenchmarkSession, None, None]:
+    """Evicts once and opens shared engine resources outside measurement."""
     print("Requesting database-file cache eviction...", flush=True)
     reset_database_cache(settings.db)
-    with connect_database(settings) as root:
+    with ExitStack() as stack:
+        root = stack.enter_context(connect_database(settings))
         queries, version = initialize_database(root, settings, sirius_config)
-        orders = make_streams(
-            list(queries), settings.connections, settings.seed
-        )
-        warmup_orders = make_warmup_streams(list(queries), settings)
-        streams, elapsed = run_concurrent(
-            root, queries, orders, settings, warmup_orders
-        )
+        count = max(settings.connections, settings.warmup_streams)
+        connections = [stack.enter_context(root.cursor()) for _ in range(count)]
+        for connection in connections:
+            configure_connection(connection, settings.device)
+        pool = stack.enter_context(ThreadPoolExecutor(max_workers=count))
+        yield BenchmarkSession(queries, version, connections, pool)
+
+
+def measure_workload(
+    session: BenchmarkSession,
+    settings: RunSettings,
+    baseline: QueryLatencies | None,
+    warmup_orders: list[QueryOrder],
+) -> BenchmarkResult:
+    """Measures one N without warming, resetting, or reopening the engine."""
+    orders = make_streams(
+        list(session.queries), settings.connections, settings.seed
+    )
+    print(f"Measuring {len(orders)} {settings.device} streams...", flush=True)
+    streams, elapsed = measure_streams(
+        session.pool, session.connections, session.queries, orders
+    )
     count = sum(len(stream.latencies) for stream in streams)
     return BenchmarkResult(
         settings=settings,
@@ -368,7 +367,48 @@ def benchmark(
         qps=count / elapsed,
         mean_slowdown=mean_slowdown(baseline, streams),
         baseline_latencies_s=baseline,
-        duckdb_version=version,
+        duckdb_version=session.duckdb_version,
         process_id=os.getpid(),
         warmup_orders=warmup_orders,
     )
+
+
+def benchmark(
+    settings: RunSettings,
+    baseline: QueryLatencies | None,
+    sirius_config: Path,
+) -> BenchmarkResult:
+    """Warms if requested, then measures one N on a fresh engine instance."""
+    with open_session(settings, sirius_config) as session:
+        orders = make_warmup_streams(list(session.queries), settings)
+        run_warmup(session, orders)
+        return measure_workload(session, settings, baseline, orders)
+
+
+def benchmark_batch(
+    settings: RunSettings,
+    connections: list[int],
+    sirius_config: Path,
+    baseline: QueryLatencies | None = None,
+) -> Generator[BenchmarkResult, None, None]:
+    """Warms once, obtains an N=1 reference, then measures ascending Ns.
+
+    The caller writes each yielded result while the session stays open.
+    All measurements inherit the shared cache state from previous phases.
+    """
+    own_baseline = baseline is None
+    counts = sorted(set(connections) | ({1} if own_baseline else set()))
+    reference = settings.output if own_baseline else settings.baseline_json
+    capacity = replace(settings, connections=max(counts))
+    with open_session(capacity, sirius_config) as session:
+        orders = make_warmup_streams(list(session.queries), settings)
+        run_warmup(session, orders)
+        for count in counts:
+            measured = replace(
+                settings, connections=count,
+                baseline_json=None if own_baseline and count == 1 else reference,
+            )
+            result = measure_workload(session, measured, baseline, orders)
+            if own_baseline and count == 1:
+                baseline = result.streams[0].latencies
+            yield result

@@ -15,7 +15,7 @@ write result JSON. Each file describes one measured workload with N streams.
 | `duckdb_version` | Engine version reported by `PRAGMA version` |
 | `cpu_fallback` | False, matching current execution settings |
 | `io_backend` | `io_uring` or `kvikio` for GPU runs; null for CPU runs |
-| `process_id` | PID of this fresh measurement process |
+| `process_id` | Process PID; shared by all measurements within a warm batch |
 | `connections` | Number of concurrent streams, N |
 | `seed` | Integer shuffle seed, `ASC` (default), `DESC`, or `ASC-DESC` |
 | `warmup_streams` | Concurrent warmup streams, independent of N; 0 when disabled |
@@ -41,6 +41,9 @@ named measurement orders. This gives matching warmup orders across baseline
 and comparison runs in a sample. Only measured queries appear in `streams`,
 `total_queries`, QPS, and slowdown. Settings, index, and result JSON store
 only `warmup_streams`; there is no separate warmup boolean.
+For warm sweeps, the count and query orders describe one shared warmup before
+the N=1 baseline, not a new warmup before each N. Later Ns inherit the cache
+state of the preceding measurements. Result filenames and fields are unchanged.
 
 `io_backend = "kvikio"` means the fixed workaround configuration: one GPU,
 `KVIKIO_COMPAT_MODE=ON`, and `KVIKIO_AUTO_DIRECT_IO_READ=0`. The generated
@@ -120,7 +123,10 @@ to that result instead (typically just `baseline.json`).
 
 All measurements run sequentially using `sys.executable`. One reference is
 shared by the requested connection counts within a sample/backend/cache/order
-combination. Repetitions generate new references. The runner stops on failure,
+combination. Cold runs use separate processes; warm runs share one process
+and one warmup across the baseline and all requested Ns. Repetitions start
+fresh processes and generate new references. Progress counts each measured N
+even when several Ns share a process. The runner stops on failure,
 retains already completed raw files, and writes the index only after the full
 sweep succeeds. A failed measurement writes no new result metrics. An old
 explicit output file can remain after failure; use new filenames/directories.
@@ -175,9 +181,10 @@ reference line at factor 1. QPS plots always include N=1 references.
 
 Each measured worker executes its 22-query stream once after synchronized
 release. Optional warmup runs an independently sized group of shuffled streams
-before that release, with no cache reset or database reopening between phases.
+once before the warm batch's baseline, with no reset or reopening between Ns.
 The cold-start reset is file-specific and best effort, as described in the
-README. Fresh processes prevent reuse of prior in-process CPU/GPU buffers.
+README. Fresh cold processes prevent reuse of prior in-process CPU/GPU buffers;
+warm batches intentionally retain those buffers across their measurements.
 
 There is no result-row validation or planning-free/prepared-statement timer.
 DuckDB chooses its resource defaults. Native GPU execution still needs a

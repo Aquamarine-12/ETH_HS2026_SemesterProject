@@ -527,3 +527,59 @@ a final 100% report. The total includes each sample/backend/warmup/order
 combination's N=1 baseline and each requested N>1 run. Requested N=1 reuses
 the baseline without being counted twice. Only successful children advance
 the counter; warmup queries are part of a benchmark, not separate progress units.
+
+## Update: 2026-11-22 one warmup per shared warm batch
+
+The user approved replacing repeated warmup/process startup at every N with
+a shared warm session. For each sample/backend/warmup-count/query-order
+combination with a positive count, the sweep launches one child with the
+whole connection list. The child opens one database/runtime, creates capacity
+for the largest N or warmup count, warms once, then measures N=1 and the
+requested larger Ns in ascending order. Connections, worker pool, and engine
+caches remain alive between measurements. The user explicitly accepts later
+Ns inheriting cache state from the baseline and previous measurements.
+
+Cold measurements still use a separate fresh process for the baseline and
+each requested N. The benchmark CLI accepts a connection list for warm
+batches while retaining single-count calls and the existing warmup flags.
+The execution core separates session setup, warmup, and measured workloads;
+its batch generator yields results as they complete and reuses baseline
+latencies in memory. The entry point saves each result before continuing.
+
+Existing per-N JSON/settings/YAML paths, result schema, baseline links,
+metrics, and overall per-measurement progress are preserved. Warm results
+share a process ID; each GPU YAML reflects the shared startup capacity.
+Batch failure retains earlier successful files, stops the sweep before its
+index is published, and closes the shared resources. No plotting code was
+edited; the user says another agent is working on plotting.
+
+Verification passed on local DuckDB 1.5.6: instrumented exact warmup/query
+counts, phase separation and timing exclusion, one eviction/engine/pool per
+warm batch, and cleanup after warmup/measurement/output failure. An SF0.01
+CPU sweep produced 24 measurements in 4 warm-batch processes and 12 cold
+processes with correct progress, filenames, schema, references, and metrics.
+Explicit N=1 reuse, standalone warm batches, and existing external-baseline
+single runs passed. GPU admission, one-GPU selection, and per-result YAML
+were verified with a mocked runtime; real GPU validation remains pending.
+
+## Update: 2026-11-22 warm-batch review
+
+Progress belongs only to `sweep.py`: a local completed/total tuple and print
+statements replace the progress class. The benchmark has no progress flag,
+counter, or offset. The sweep reports before each child launch and at completion;
+a warm batch advances the measured-benchmark count after its child succeeds.
+
+Warm batches now accept an external `--baseline-json`. Loading a reference
+requires the exact same warmup stream count, including for single-count calls.
+With an external reference, only requested Ns are measured, in ascending order;
+even an explicitly requested N=1 retains that reference. Otherwise the batch
+still measures its own N=1 first. An external batch's `--output` names its first
+measurement; subsequent files use `nN.json`. The existing reference is read only.
+The session context manager and batch iterator use `Generator` annotations so
+type checkers recognize their yielded values and generator cleanup methods.
+
+Review verification passed on DuckDB 1.5.6: the 24-measurement CPU sweep,
+one warmup per shared session, failure cleanup, sweep-only progress, external
+baseline reuse (including explicit N=1), exact-count rejection before setup,
+and preserved references. External GPU batch YAML/capacity checks passed with
+a mocked Sirius runtime. Plotting code was not edited.

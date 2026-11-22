@@ -1,7 +1,7 @@
 # TPC-H stream benchmark
 
 Generate a database once, then measure N concurrent 22-query streams on DuckDB
-CPU or Sirius GPU, starting each workload with a cache-eviction request. Repeat runs
+CPU or Sirius GPU, evicting before each cold run or shared warm batch. Repeat runs
 with `sweep.py`, then generate Matplotlib figures with `plot.py`.
 
 ## Quick start
@@ -82,11 +82,14 @@ Supply connection counts through `[sweep].connections` or the sweep CLI
 `--connections` option; there is no built-in sweep connection list. Table
 generation requires an explicit `--scale-factor`.
 
-The sweep runs sequentially, with a fresh Python process per measurement.
+The sweep runs sequentially. Cold measurements each use a fresh Python process.
+Warm measurements use one fresh process per sample/backend/warmup-count/order
+combination: warm up once, measure N=1, then measure the requested larger Ns in
+ascending order without resetting caches or reopening the engine.
 Every sample/backend/cache/order combination gets one N=1 baseline, followed by
 its requested N>1 runs. Requested N=1 points reuse that baseline; they do not
 trigger a second run or receive an artificial slowdown value. The main entry
-point prints a warning explaining this. Sweep references are always generated
+point warns about an unreferenced single N=1 run. Sweep references are generated
 automatically, regardless of a single-run baseline configured in TOML.
 
 `[sweep].warmup_streams` and `[sweep].seeds` are lists, like `devices` and
@@ -101,6 +104,9 @@ python sweep.py --config experiment-sf10.toml --warmup-streams 0 5 \
 Zero warmup streams means cold cache; a positive count runs that many warmup
 streams. The default is zero. `--seed` (also `--seeds`) accepts named orders or
 integer shuffle seeds. Each combination has its own baseline and output directory.
+Progress counts measured benchmarks, including baselines, rather than child
+processes. The sweep reports before each child starts; a warm batch advances
+the count after all its measurements finish and saves each result separately.
 
 ### GPU I/O backend
 
@@ -134,7 +140,7 @@ recorded. Both I/O backends explicitly use one GPU, shared by all query streams.
 
 ## Cache and timing
 
-Each measurement requests database-file eviction before opening DuckDB:
+Each cold measurement or warm batch requests eviction before opening DuckDB:
 `fsync`, followed by `POSIX_FADV_DONTNEED`. **This is best effort**, not proof
 of a physical-disk cold start. It does not clear storage-device/server caches;
 other readers can refill the shared Linux page cache. No root access is needed.
@@ -150,6 +156,25 @@ independently of measurement N. The default count is zero, meaning cold cache.
 All warmup finishes before measurement starts, with the same database instance
 and connection pool kept open and no intervening cache reset. This warms shared
 engine caches but does not guarantee steady state or full RAM/VRAM residency.
+
+Within a warm sweep batch, that warmup runs only once before the N=1 baseline.
+Later connection counts inherit the cache state left by the baseline and earlier
+measurements. Each new sample/backend/warmup-count/order combination starts a
+fresh process. A standalone multi-count warm batch uses the same workflow:
+
+```bash
+python benchmark.py benchmark --db data/sf10.duckdb \
+  --warmup --warmup-streams 5 --connections 1 2 3 4 5 \
+  --output results/warm-batch/baseline.json
+```
+
+Without `--baseline-json`, N=1 is measured first, even if omitted from the list.
+The command writes the baseline at `--output` and `n2.json`, `n3.json`, etc.
+beside it. Without an explicit output path, it creates a fresh run directory.
+Both single-count calls and warm batches accept an external N=1 reference
+with `--baseline-json`. Its warmup stream count must match exactly. With an
+external reference, a batch measures only the requested Ns in ascending order;
+`--output` names the first result, with later `nN.json` files beside it.
 
 Use a warm baseline for warm measurements and a cold baseline for cold ones.
 For example, to enable warmup throughout a sweep:
@@ -249,17 +274,17 @@ only what is displayed; the measurement files and overall metrics are unchanged.
 
 ## Code map
 
-- `benchmark.py`: entry point, progress/reporting, and writing successful runs.
+- `benchmark.py`: entry point, reporting metrics, and writing successful runs.
 - `core.py`: typed settings/results, database setup, workers, and timing.
 - `cli.py`: argument parsing and TOML settings, plus sweep settings.
 - `json_io.py`: JSON readers/writers and relative result references.
 - `hardware.py`: CPU/GPU model detection on the measurement node.
-- `sweep.py`: repeated subprocess measurements and the completed index.
+- `sweep.py`: cold-run/warm-batch subprocesses, progress, and the completed index.
 - `plot.py`: result aggregation, paired bootstrap medians, and Matplotlib.
 
 GPU workers keep `enable_duckdb_fallback = false`; unsupported GPU execution
 fails. The generated per-run Sirius YAML sets startup-only admission to the
-larger of N and the enabled warmup stream count.
+larger of the maximum measured N and the warmup stream count for that process.
 This setting has no equivalent runtime `SET`/connection option, so the YAML
 must exist before loading Sirius. The YAML also selects the I/O backend and
 sets `topology.num_gpus: 1` for both backends. Other Sirius defaults, including

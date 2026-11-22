@@ -84,10 +84,8 @@ def load_baseline(
     if result["connections"] != 1:
         raise ValueError(f"Expected an N=1 baseline: {path}")
     if settings is not None:
-        if (result.get("warmup_streams", 0) > 0) != (
-            settings.warmup_streams > 0
-        ):
-            raise ValueError(f"Baseline warmup mode differs: {path}")
+        if result.get("warmup_streams", 0) != settings.warmup_streams:
+            raise ValueError(f"Baseline warmup stream count differs: {path}")
         if (
             result["device"] == "gpu"
             and result.get("io_backend") != settings.io_backend

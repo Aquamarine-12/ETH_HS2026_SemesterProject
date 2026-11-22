@@ -62,6 +62,8 @@ def load_run_settings(args: argparse.Namespace) -> RunSettings:
     names = {field.name for field in fields(RunSettings)}
     overrides = {key: val for key, val in vars(args).items() if key in names}
     values.update(resolve_paths(overrides, Path.cwd()))
+    if hasattr(args, "connection_counts"):
+        values["connections"] = args.connection_counts[0]
     # CLI enable/disable flags become one internal stream count.
     if (
         getattr(args, "command", None) == "benchmark"
@@ -112,7 +114,11 @@ def add_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--device", choices=list(Device), default=argparse.SUPPRESS
     )
-    parser.add_argument("--connections", type=int, default=argparse.SUPPRESS)
+    parser.add_argument(
+        "--connections", dest="connection_counts", type=int, nargs="+",
+        default=argparse.SUPPRESS,
+        help="One connection count, or a list for a shared warm batch",
+    )
     add_seed_argument(parser)
     parser.add_argument(
         "--sirius-extension", type=Path, default=argparse.SUPPRESS
