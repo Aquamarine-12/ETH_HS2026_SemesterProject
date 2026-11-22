@@ -14,6 +14,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias
 
+from hardware import hardware_info
+
 if TYPE_CHECKING:
     from core import BenchmarkResult, QueryLatencies, RunSettings
 
@@ -106,6 +108,8 @@ def result_document(result: BenchmarkResult, output: Path) -> JsonObject:
     """Converts the core result into the public per-run JSON format."""
     settings = result.settings
     document = {
+        # Detect hardware after measurement, outside all timed intervals.
+        **hardware_info(),
         "device": settings.device,
         "database": str(settings.db.resolve()),
         "sample": settings.sample,

@@ -8,6 +8,8 @@ write result JSON. Each file describes one measured workload with N streams.
 | Field | Meaning |
 | --- | --- |
 | `device` | `cpu` or `gpu` |
+| `cpu_model` | CPU model detected on the measurement node, or null |
+| `gpu_model` | NVIDIA GPU models reported by `nvidia-smi`, or null if unavailable |
 | `database` | Absolute source database path, retained as metadata |
 | `sample` | Experiment sample number, starting at 1 |
 | `duckdb_version` | Engine version reported by `PRAGMA version` |

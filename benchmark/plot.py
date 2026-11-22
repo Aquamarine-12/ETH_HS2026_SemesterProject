@@ -340,7 +340,6 @@ def query_figure(
         draw_query_panel(panel, subset, metric, queries)
         panel.set_title(label)
     axes[-1, 0].set_xlabel("TPC-H query")
-    figure.suptitle("Median across samples; bars: 95% bootstrap CI")
     return figure
 
 
@@ -351,13 +350,34 @@ def connection_figure(runs: list[PlotRun], metric: str) -> plt.Figure:
         draw_series(axes, label, np.array(columns, dtype=float), values)
     axes.set_xlabel("Connections")
     axes.set_ylabel(Y_LABELS[metric])
-    axes.set_title("Median across samples; bars: 95% bootstrap CI")
     if metric == "slowdown":
         axes.axhline(1, color="grey", linestyle="--", linewidth=1)
     axes.set_xticks(sorted({run.data["connections"] for run in runs}))
     axes.grid(alpha=0.2)
     axes.legend()
     return figure
+
+
+def add_figure_title(
+    figure: plt.Figure,
+    runs: list[PlotRun],
+    metric: str,
+) -> None:
+    """Adds the cache mode and measurement hardware above the figure."""
+    modes = {run.data.get("warmup", False) for run in runs}
+    if len(modes) == 1:
+        cache = "Hot cache" if True in modes else "Cold cache"
+    else:
+        cache = "Hot and cold cache"
+    hardware = []
+    for label, key in (("CPU", "cpu_model"), ("GPU", "gpu_model")):
+        models = sorted({run.data[key] for run in runs if run.data.get(key)})
+        hardware.append(f"{label}: {', '.join(models) or 'not recorded'}")
+    figure.suptitle(
+        f"{Y_LABELS[metric]} — {cache}\n{' | '.join(hardware)}\n"
+        "Median across samples; bars: 95% bootstrap CI",
+        fontsize=12,
+    )
 
 
 def render_metric(
@@ -374,6 +394,7 @@ def render_metric(
         query_figure(runs, metric, settings.queries) if per_query
         else connection_figure(runs, metric)
     )
+    add_figure_title(figure, runs, metric)
     output.mkdir(parents=True, exist_ok=True)
     for suffix in ("png", "pdf"):
         figure.savefig(output / f"{metric}.{suffix}", dpi=180)

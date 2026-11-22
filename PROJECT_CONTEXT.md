@@ -434,3 +434,18 @@ sweep forwarding, saved orders, and recomputed metrics. Instrumented workers
 confirmed phase separation, connection reuse, timing exclusion, and warmup
 failure propagation. Sirius admission and plot metadata checks passed without
 running the GPU runtime or rendering figures. GPU/cluster validation is pending.
+
+## Update: 2026-11-22 plot hardware and cache titles
+
+The user requested automatic CPU/GPU detection through a small additional
+Python file. `benchmark/hardware.py` reads Linux CPU model names and queries
+`nvidia-smi` for NVIDIA GPU models. `json_io.py` records `cpu_model` and
+`gpu_model` when writing each successful result, after all measurement timers
+have stopped. Missing NVIDIA tooling or an unavailable GPU produces null GPU
+metadata. The helper also prints a short summary when run directly.
+
+All four plot types now show hot/cold cache mode from the recorded `warmup`
+flag, with the recorded CPU/GPU models on a subtitle line. Plotting never
+detects the plotting machine's hardware. Older results without model metadata
+show "not recorded". Mixed cache modes are labeled explicitly. This does not
+change series grouping or require additional plotting arguments.

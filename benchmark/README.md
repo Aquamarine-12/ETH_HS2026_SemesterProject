@@ -190,6 +190,11 @@ A single result JSON is also accepted; it supplies a single measured sample.
 Use `--output path/to/figures` to choose the figure directory.
 See [RESULTS.md](RESULTS.md) for the JSON fields, formula, and output layout.
 
+Figure titles show hot or cold cache from the recorded `warmup` setting.
+The subtitle shows CPU/GPU models detected on the measurement node by
+`hardware.py` and saved with each new result. Older results without those
+fields show "not recorded". Run `python hardware.py` for a quick hardware summary.
+
 ### Select queries and connection counts
 
 Limit the per-query figures to a smaller subset:
@@ -229,6 +234,7 @@ only what is displayed; the measurement files and overall metrics are unchanged.
 - `core.py`: typed settings/results, database setup, workers, and timing.
 - `cli.py`: argument parsing and TOML settings, plus sweep settings.
 - `json_io.py`: JSON readers/writers and relative result references.
+- `hardware.py`: CPU/GPU model detection on the measurement node.
 - `sweep.py`: repeated subprocess measurements and the completed index.
 - `plot.py`: result aggregation, paired bootstrap medians, and Matplotlib.
 
