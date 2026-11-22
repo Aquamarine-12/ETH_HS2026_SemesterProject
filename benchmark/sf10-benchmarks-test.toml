@@ -10,7 +10,7 @@ results_dir = "results"
 
 [sweep]
 devices = ["cpu", "gpu"]
-warmup_streams = [0]  # Use [0, 5] to include warm-cache runs.
-seeds = ["ASC", "DESC", "ASC-DESC", 42]
-connections = [2, 3, 4, 5, 6, 7, 8, 9, 10]
-samples = 5
+warmup_streams = [0, 5]  # Cold cache (0 warmup streams), hot cache (5 streams).
+seeds = ["ASC"]
+connections = [2, 3, 4, 5]
+samples = 3
